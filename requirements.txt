@@ -1,0 +1,10 @@
+# Runtime deps (pip fallback — uv reads pyproject.toml instead).
+# Install: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+fastapi>=0.115
+uvicorn[standard]>=0.30
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
+pydantic>=2.7
+pydantic-settings>=2.3
+httpx>=0.27
+firebase-admin>=6.5

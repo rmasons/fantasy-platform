@@ -1,0 +1,22 @@
+-- Reference only — NOT part of the numbered migration run (the runner skips files
+-- whose name doesn't start with a digit). Apply per environment by hand, because
+-- managed hosts differ in how roles/passwords are provisioned.
+--
+-- The split that enforces the architecture:
+--   ingest_rw — writes sleeper.*, no access to app.*
+--   web_rw    — read/write app.*, read-only sleeper.*
+-- So the web app cannot mutate ingested history, and ingestion can't touch app data.
+
+-- create role ingest_rw login password '<set-me>';
+-- grant usage on schema sleeper to ingest_rw;
+-- grant select, insert, update, delete on all tables in schema sleeper to ingest_rw;
+-- alter default privileges in schema sleeper
+--     grant select, insert, update, delete on tables to ingest_rw;
+
+-- create role web_rw login password '<set-me>';
+-- grant usage on schema app, sleeper to web_rw;
+-- grant select, insert, update, delete on all tables in schema app to web_rw;
+-- grant select on all tables in schema sleeper to web_rw;
+-- alter default privileges in schema app
+--     grant select, insert, update, delete on tables to web_rw;
+-- alter default privileges in schema sleeper grant select on tables to web_rw;
