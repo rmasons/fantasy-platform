@@ -11,6 +11,7 @@ and architecture.
 | **Orchestrator / architect / reviewer** | **Opus** | Decompose work, write the contract + tests + acceptance criteria per slice, decide what to delegate, review & verify, own architecture |
 | **Implementer fleet** | **Sonnet subagents** | Take a tight spec → make the failing tests pass → run checks. Used for frontend, and for backend drafts when asked |
 | **Backend / DB owner + product** | **Mason** | Owns the Python backend, DB, and priorities; gives frontend feedback; pulls in agent help on backend on request |
+| **VCS / rote chores** | **Haiku** | git commits, pushes, PR creation, branch ops, and other mechanical tasks — never spend a bigger model on these |
 
 ## The loop — test-driven, every slice
 
@@ -38,7 +39,7 @@ A slice is **done** only when its tests are green in CI.
 
 ## Agentic rules
 
-- **Default to Sonnet** for implementation; **escalate to Opus** for subtle/hard tasks. The tiering is a default, not a rule.
+- **Model by task tier:** **Opus** = orchestration, architecture, reviews; **Sonnet** = implementation (default — escalate to Opus for subtle/hard tasks); **Haiku** = mechanical VCS chores (commits, pushes, PRs, branch ops). The tiering is a default, not a rule.
 - **Spec quality gates output** — the orchestrator's main job is crisp, testable contracts. Vague spec → bad code.
 - **Delegate sizable, well-bounded tasks**; do trivial edits inline (spawning has cost + overhead).
 - **Parallel file-mutating agents run in isolated worktrees** — avoids the file collisions / inflated results we hit before.
