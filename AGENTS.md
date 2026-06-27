@@ -52,3 +52,4 @@ A slice is **done** only when its tests are green in CI.
 - **Schema ownership** — `app.*` (web-owned) vs `sleeper.*` (ingestion-owned), with DB-role separation (`migrations/ROLES.sql`).
 - **Migrations** — plain numbered SQL in `migrations/`, applied by `core.db.migrate`.
 - **The API contract is the coordination point** between backend (Mason) and frontend (Opus/Sonnet): agree on the JSON shape first, build both sides against it in parallel (frontend mocks it until the endpoint is live).
+- **Keep [HANDOFF.md](HANDOFF.md) current** — update it during and at the end of each session whenever state materially changes (a slice ships, a decision lands, a blocker clears). It's the resume point; updating it is part of finishing a task.
