@@ -5,6 +5,7 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize]
+    branches: [dev] # advisory on feature -> dev only; promotions use promotion-review
 
 permissions:
   contents: read
