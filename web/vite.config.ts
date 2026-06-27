@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-auto';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
 	plugins: [
@@ -42,7 +43,7 @@ export default defineConfig({
 				],
 				resolve: {
 					alias: {
-						$lib: '/Users/masonrussell/Desktop/development/fantasy-platform/web/src/lib'
+						$lib: fileURLToPath(new URL('./src/lib', import.meta.url))
 					},
 					conditions: ['browser']
 				},
