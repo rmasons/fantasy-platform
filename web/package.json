@@ -14,8 +14,8 @@
 		"test": "npm run test:unit -- --run"
 	},
 	"dependencies": {
-		"convex": "^1.17.0",
-		"convex-svelte": "^0.1.7"
+		"convex": "^1.42.1",
+		"convex-svelte": "^0.14.0"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
