@@ -1,0 +1,21 @@
+{
+  "name": "fantasy-platform",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@auth/core": "^0.37.0",
+    "@convex-dev/auth": "^0.0.87",
+    "convex": "^1.17.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^4.0.4",
+    "convex-test": "^0.0.33",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

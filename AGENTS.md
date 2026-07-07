@@ -9,8 +9,8 @@ and architecture.
 | Role | Who | Responsibility |
 |---|---|---|
 | **Orchestrator / architect / reviewer** | **Opus** | Decompose work, write the contract + tests + acceptance criteria per slice, decide what to delegate, review & verify, own architecture |
-| **Implementer fleet** | **Sonnet subagents** | Take a tight spec → make the failing tests pass → run checks. Used for frontend, and for backend drafts when asked |
-| **Backend / DB owner + product** | **Mason** | Owns the Python backend, DB, and priorities; gives frontend feedback; pulls in agent help on backend on request |
+| **Implementer fleet** | **Sonnet subagents** | Take a tight spec → make the failing tests pass → run checks. Used for frontend and Convex function implementation |
+| **Backend / product owner** | **Mason** | Owns priorities and slice sequencing; builds ingestion logic and Convex mutations on request; gives frontend feedback |
 | **VCS / rote chores** | **Haiku** | git commits, pushes, PR creation, branch ops, and other mechanical tasks — never spend a bigger model on these |
 
 ## The loop — test-driven, every slice
@@ -19,37 +19,42 @@ and architecture.
 
 1. **Contract** — Opus writes the API/data contract + acceptance criteria for the slice.
 2. **Red** — write the failing tests first (they encode the contract and the behavior).
-3. **Green** — implement the minimum to make them pass (Sonnet for delegated work; Mason for owned backend).
+3. **Green** — implement the minimum to make them pass (Sonnet for delegated work; Mason for owned logic).
 4. **Refactor** — clean up with the tests green.
 5. **Review** — a **fresh-context** review agent for anything non-trivial, before it lands.
-6. **Verify** — tests + lint/compile actually run and pass. Never trust an agent's self-report.
+6. **Verify** — tests + lint/type-check actually run and pass. Never trust an agent's self-report.
 
 A slice is **done** only when its tests are green in CI.
 
 ### TDD rules
 - Test **behavior and contracts**, not implementation details.
-- Pure logic (standings sort, keeper cost, trade value, …) → thorough **unit tests**.
-- DB / ingestion → **integration tests** against a disposable test schema; assert **idempotency** (run twice, same result).
-- Keep `core/` logic storage-agnostic so it's unit-testable without a DB.
+- Pure logic (`convex/lib/`) → thorough **unit tests** with plain vitest (no Convex
+  imports, no `ctx`).
+- Convex function tests (queries / mutations / actions) → **`convex-test`** (vitest
+  harness with an in-memory Convex backend); assert **idempotency** on upsert paths
+  (run mutation twice, same result).
+- Keep `convex/lib/` logic free of `ctx.db` so it's unit-testable without a Convex
+  runtime.
 
 ### Commands
-- Backend tests: `PYTHONPATH=src pytest`
-- Lint/format: `ruff check . && ruff format .`
-- Frontend tests (once the frontend lands): `vitest` (+ Playwright for e2e)
+- **Convex dev:** `npx convex dev` (watches `convex/`, pushes schema + functions on change)
+- **All tests:** `cd web && npx vitest run` (covers `convex/` function tests via `convex-test` + `web/` component tests)
+- **Type-check:** `cd web && npx svelte-check`
+- **Lint:** `cd web && npx eslint src/`
 
 ## Agentic rules
 
 - **Model by task tier:** **Opus** = orchestration, architecture, reviews; **Sonnet** = implementation (default — escalate to Opus for subtle/hard tasks); **Haiku** = mechanical VCS chores (commits, pushes, PRs, branch ops). The tiering is a default, not a rule.
 - **Spec quality gates output** — the orchestrator's main job is crisp, testable contracts. Vague spec → bad code.
 - **Delegate sizable, well-bounded tasks**; do trivial edits inline (spawning has cost + overhead).
-- **Parallel file-mutating agents run in isolated worktrees** — avoids the file collisions / inflated results we hit before.
+- **Parallel file-mutating agents run in isolated worktrees** — avoids file collisions and inflated results.
 - **Reviews are fresh-context**, independent of whoever wrote the spec — same reason the PR gate uses fresh context. Self-review shares blind spots.
-- **Tooling:** the Agent tool (`model: sonnet`) for individual tasks; the Workflow tool only for structured parallel fan-out when scale genuinely warrants it — and flag the cost first.
+- **Tooling:** the Agent tool (`model: sonnet`) for individual tasks; Workflow only for structured parallel fan-out when scale genuinely warrants it — flag the cost first.
 
 ## Conventions
 
-- **Env-driven config** — identical code runs on local Docker and Railway; nothing host-specific in code.
-- **Schema ownership** — `app.*` (web-owned) vs `sleeper.*` (ingestion-owned), with DB-role separation (`migrations/ROLES.sql`).
-- **Migrations** — plain numbered SQL in `migrations/`, applied by `core.db.migrate`.
-- **The API contract is the coordination point** between backend (Mason) and frontend (Opus/Sonnet): agree on the JSON shape first, build both sides against it in parallel (frontend mocks it until the endpoint is live).
-- **Keep [HANDOFF.md](HANDOFF.md) current** — update it during and at the end of each session whenever state materially changes (a slice ships, a decision lands, a blocker clears). It's the resume point; updating it is part of finishing a task.
+- **Env-driven config** — `PUBLIC_CONVEX_URL` in `web/.env.local`; backend secrets via `npx convex env set`. Nothing host-specific in code.
+- **Schema is the coordination point** — `convex/schema.ts` defines the tables both queries (readers) and mutations (writers) agree on. Change the schema first; update functions second.
+- **No SQL migrations** — `npx convex dev` and `npx convex deploy` push schema automatically. Convex validates that existing documents match before applying.
+- **The query contract is the handshake** between Convex functions (Mason / Sonnet) and the frontend (Opus / Sonnet): agree on the return type first, build both sides against it in parallel (frontend uses a typed fixture until the live query is wired).
+- **Keep [HANDOFF.md](HANDOFF.md) current** — update it during and at the end of each session whenever state materially changes. It's the resume point; updating it is part of finishing a task.

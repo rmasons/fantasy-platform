@@ -1,7 +1,5 @@
 name: verify
 
-# Polyglot CI: backend (pytest) + web (vitest). Runs on PRs toward dev/test/main.
-# Branch protection on test + main requires the `verify` check (see PIPELINE.md).
 on:
   pull_request:
     branches: [dev, test, main]
@@ -16,24 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Backend (Python) ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install backend deps
-        run: pip install -r requirements-dev.txt
-      - name: Backend tests
-        run: PYTHONPATH=src pytest
-
-      # --- Web (SvelteKit) ---
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
       - name: Install web deps
         working-directory: web
         run: npm ci
+
       - name: Web tests
         working-directory: web
         run: npx vitest run
+
+      - name: Type-check
+        working-directory: web
+        run: npx svelte-check --tsconfig ./tsconfig.json
