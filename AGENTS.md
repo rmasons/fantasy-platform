@@ -37,10 +37,13 @@ A slice is **done** only when its tests are green in CI.
   runtime.
 
 ### Commands
-- **Convex dev:** `npx convex dev` (watches `convex/`, pushes schema + functions on change)
-- **All tests:** `cd web && npx vitest run` (covers `convex/` function tests via `convex-test` + `web/` component tests)
+- **Convex dev:** `npx convex dev` (watches `convex/`, pushes schema + functions on change; generates `convex/_generated/`)
+- **Convex function tests:** `npx vitest run` (from root — uses `vitest.config.ts` with `edge-runtime`; needs `convex-test`)
+- **Web component tests:** `cd web && npx vitest run`
 - **Type-check:** `cd web && npx svelte-check`
 - **Lint:** `cd web && npx eslint src/`
+
+CI runs web vitest + svelte-check. Convex function tests run locally; add them to CI once codegen is stable (requires `convex.json` committed and a deploy key set).
 
 ## Agentic rules
 
