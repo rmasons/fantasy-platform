@@ -2,14 +2,15 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { setupConvex, setupAuth } from 'convex-svelte';
-	import { PUBLIC_CONVEX_URL } from '$env/static/public';
+	import { env } from '$env/dynamic/public';
 	import { authStore } from '$lib/auth.svelte.js';
 	import { onMount } from 'svelte';
 
 	let { children } = $props();
 
-	if (PUBLIC_CONVEX_URL) {
-		setupConvex(PUBLIC_CONVEX_URL);
+	const convexUrl = env.PUBLIC_CONVEX_URL;
+	if (convexUrl) {
+		setupConvex(convexUrl);
 		setupAuth(() => ({
 			isLoading: authStore.isLoading,
 			isAuthenticated: authStore.isAuthenticated,
