@@ -55,8 +55,11 @@ cd web && npm run dev
 Run tests:
 
 ```bash
-# Convex function tests (convex-test) + web component tests — vitest runs both
+# Web component tests
 cd web && npx vitest run
+
+# Convex function tests (convex-test, edge-runtime) — run from the repo root
+npx vitest run
 
 # Type-check + lint
 cd web && npx svelte-check && npx eslint src/
