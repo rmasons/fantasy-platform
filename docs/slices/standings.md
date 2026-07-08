@@ -45,6 +45,10 @@ Equivalent REST shape (for reference / testing via `convex-test`):
 
 - Ordering: `wins` desc, then `fpts` desc — computed in `computeStandings()`.
 - `avatar` may be `null`. `ownerName` may equal `teamName`.
+- **Avatar is stored as the raw Sleeper avatar *ID***, not a URL. The contract's
+  `avatar` field is the full CDN URL — build it as
+  `https://sleepercdn.com/avatars/thumbs/{id}` in `computeStandings()` (keep the
+  raw ID in the DB so full-size vs thumb stays a render decision).
 - **`streak` is deferred** to the matchups slice. The web renders without it for v1.
 
 ## Backend (Mason / Sonnet) — TDD order
@@ -108,6 +112,22 @@ Sleeper field map:
   `settings.fpts` + `settings.fpts_decimal` (combine to float),
   `settings.fpts_against` + `settings.fpts_against_decimal`
 
+**Sleeper `null` vs Convex `v.optional` — known bugs to fix before wiring real data
+(step 2d in HANDOFF).** Convex `v.optional(v.string())` accepts *undefined* but
+rejects *null*; Sleeper returns explicit `null` for missing values. The current
+scaffold passes these through raw, so `backfill` will throw a validator error on the
+first real league:
+
+- `league.previous_league_id` is `null` for a first-season league → coerce with
+  `?? undefined` in `actions/ingest.ts` (or widen the schema to
+  `v.union(v.string(), v.null())`).
+- `user.avatar` and `metadata.team_name` can be `null` → coerce `?? undefined`.
+- `settings.fpts_decimal` / `fpts_against_decimal` (and week 0 `fpts`) can be
+  **absent** pre-season → default with `?? 0` or the combine produces `NaN`.
+
+Write the failing tests for these cases first (they're exactly the kind of edge
+`convex-test` is for), then fix the mapping.
+
 ### 4. Sleeper client — `convex/lib/sleeper.ts`
 
 Port `src/core/sleeper/client.py` to TypeScript. Thin `fetch` wrapper; no Convex
@@ -122,6 +142,10 @@ imports (pure TS → unit-testable). Methods needed for this slice:
 
 `daily()` (no args — called by cron):
 - Reads active league IDs from the DB, refreshes rosters for each.
+- Fan out via `ctx.scheduler.runAfter(0, internal.actions.ingest.backfill, { leagueId })`
+  per league rather than `ctx.runAction` + `Promise.all` — action→action calls are
+  discouraged (they hold the parent action open) and one league's failure shouldn't
+  abort the rest.
 
 Wire `daily` into `convex/crons.ts`:
 
@@ -145,6 +169,10 @@ correctly ordered rows matching Sleeper data, and all tests are green in CI.
 
 - Vitest unit test for the Convex doc → `StandingRow` mapper (already done as
   the snake_case→camelCase fixture mapper — confirm it matches the Convex query return type).
-- Swap `load()` function fixture for `useQuery(api.queries.leagues.getStandings, { leagueId })` via `convex-svelte`.
+- Swap the `load()` fixture for the live query. Note: `useQuery` from
+  `convex-svelte` must run during **component initialization** (it uses Svelte
+  context), so it goes in `+page.svelte` — it cannot be called from a `+page.ts`
+  `load()` function. Delete the `load()` + `VITE_API_BASE_URL` REST path
+  (leftover from the FastAPI plan) when wiring this.
 - Reuse the existing standings UI (navy/amber theme, `font-sport`, desktop table +
   mobile cards) — no visual changes needed.

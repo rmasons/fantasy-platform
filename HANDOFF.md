@@ -6,7 +6,7 @@
 > resuming work. A stale handoff means lost context. Treat updating it as part of
 > finishing a task, not an afterthought.
 
-_Last updated: 2026-07-06_
+_Last updated: 2026-07-07_
 
 ## What this is
 
@@ -144,14 +144,16 @@ Confirm the `getStandings` query returns correct rows in the dashboard.
 
 ### 2e — Swap standings page fixture for live query
 
-File: `web/src/routes/standings/+page.ts`  
-Replace the `getStandings` fixture call with:
+File: `web/src/routes/standings/+page.svelte` (**not** `+page.ts` — `useQuery`
+uses Svelte context, so it must run during component init, not in `load()`):
 ```typescript
 import { useQuery } from "convex-svelte";
 import { api } from "../../../convex/_generated/api";
 const standings = useQuery(api.queries.leagues.getStandings, { leagueId: "..." });
 ```
-Keep the existing `StandingsTable` component — no visual changes needed.
+Delete the `+page.ts` `load()` + `$lib/api.ts` REST path (`VITE_API_BASE_URL` is a
+FastAPI-era leftover). Keep the existing `StandingsTable` component — no visual
+changes needed.
 
 ### 2f — Sign-in button
 
@@ -162,9 +164,37 @@ Add a button that calls `authStore.signInUrl(PUBLIC_CONVEX_SITE_URL, window.loca
 
 ## Known gaps to address later
 
+- **Sleeper `null` vs `v.optional` (fix BEFORE 2d)** — Sleeper returns explicit
+  `null` for `previous_league_id`, `avatar`, `metadata.team_name`; Convex
+  `v.optional(v.string())` rejects `null`, so `backfill` will throw on the first
+  real league. Also `fpts_decimal`/`fpts_against_decimal` can be absent → `NaN`.
+  Coerce with `?? undefined` / `?? 0` in `actions/ingest.ts` — details + test
+  cases in [docs/slices/standings.md](docs/slices/standings.md).
+- **Avatar is an ID, not a URL** — build `https://sleepercdn.com/avatars/thumbs/{id}`
+  in `computeStandings()`; the contract's `avatar` field is the full URL.
+- **`daily` fan-out** — replace `ctx.runAction` + `Promise.all` with
+  `ctx.scheduler.runAfter(0, …)` per league (one league's failure shouldn't abort
+  the rest; action→action is discouraged).
 - **Token refresh** — `authStore.fetchAccessToken` returns the stored token as-is. Wire a refresh call once `@convex-dev/auth` documents the refresh endpoint for non-React clients.
 - **Sleeper league ID** — hardcoded `"12345"` in the web standings page; replace once Mason provides the real ID.
-- **Convex function tests in CI** — add a `convex-test` job to `verify.yml` once `convex.json` is committed and a read-only deploy key is available for codegen in CI.
+- **Convex function tests in CI** — add a root `npx vitest run` job to `verify.yml` once `convex.json` is committed and a read-only deploy key is available for codegen in CI. (Until then CI covers web tests only — `verify` does **not** run Convex function tests.)
+
+## Queued audits — good next-session tasks (no Convex deployment needed)
+
+- **Auth flow vs. current `@convex-dev/auth`** — `web/src/lib/auth.svelte.ts` +
+  the callback route are hand-rolled (no official Svelte adapter); verify against
+  the library's current docs before Phase 1 wiring, including how token refresh
+  is supposed to work for non-React clients (known gap above).
+- **CI codegen** — investigate whether `npx convex codegen` runs in CI without a
+  linked deployment (newer CLI versions); if so, add a root `npx vitest run` +
+  typecheck job to `verify.yml`. Closes the "Convex tests in CI" gap — today CI
+  passes even if every Convex function is broken.
+- **`docs/slices/matchups.md`** — write the contract next; it's the Convex
+  data-modeling exemplar (doc shape: per roster-week vs. per matchup; indexes
+  like `by_league_week`; storing `players_points`; season keying for history).
+- **Type sharing** — `StandingRow` is defined twice (`convex/lib/standings.ts`
+  and `web/src/lib/standings.ts`) and will drift; plan for the web to import
+  types from the Convex-generated API instead.
 
 ## Run it
 
@@ -187,11 +217,27 @@ npx vitest run             # convex function tests (none yet — add alongside e
 
 ## Next slices (after standings)
 
-matchups · rosters · transactions · drafts · superlatives.
+Full sequenced plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**. Short version:
+
+- **Foundations first:** players (`/players/nfl` → names for everything),
+  nflState (current week), season chains (walk `previous_league_id`).
+- **Core:** matchups (+ playoff bracket, `streak`) · rosters · transactions ·
+  drafts · superlatives.
+- **Parity buildouts** (from fantasy-tds, not previously planned): power
+  rankings, records/history, manager profiles, rivalry + digest, trade/waiver
+  analytics, keepers + FAAB ledger, admin surface, Sleeper account linking,
+  multi-league, notifications, Playwright smoke.
+- **Beyond parity** (new to this app): luck/schedule analysis, bench-regret
+  tracker, Monte Carlo playoff odds, blog + LLM weekly recap (in Convex —
+  **replaces Contentful**; Markdown posts, media in Convex file storage,
+  real-time comments), preseason ballots, league votes, live draft companion,
+  dues ledger, record-chase alerts, punishment tracker.
 
 Pattern per slice: schema table(s) → mutation (upsert) → action (ingest from Sleeper)
 → query → web component. Opus writes the contract; Sonnet builds the web fixture-first
-then wires the live query; Mason owns or delegates ingestion + logic.
+then wires the live query; **Mason writes the Convex functions himself (he's using
+this project to learn Convex) and a session writes their test coverage** — see the
+TDD rules in [AGENTS.md](AGENTS.md).
 
 ## Session log
 
@@ -203,3 +249,17 @@ then wires the live query; Mason owns or delegates ingestion + logic.
   auth store + OAuth callback route scaffolded, CI fixed. Auth: Google OAuth via
   `@convex-dev/auth`; web uses custom redirect flow (no official Svelte adapter).
   Blocked on `npx convex dev` first run to generate types.
+- **2026-07-07** — Plan audit. Fixed doc inaccuracies: CI `verify` does **not** run
+  Convex function tests (pipeline.md/README corrected); `useQuery` goes in
+  `+page.svelte`, not `load()` (2e corrected). Flagged latent ingest bugs (Sleeper
+  `null` vs `v.optional`, missing `fpts_decimal` → NaN, avatar ID vs URL, `daily`
+  fan-out) as pre-2d fixes. Added [docs/ROADMAP.md](docs/ROADMAP.md): foundation
+  slices (players / nflState / season chains), fantasy-tds parity buildouts, and
+  a "beyond fantasy-tds" section of new features (luck analysis, playoff odds,
+  LLM recaps, draft companion, …). Decision: the Contentful blog migrates into
+  Convex, merged with the LLM recap feature (posts were already LLM-written last
+  season). Working-agreement update: Mason writes Convex functions himself (learning
+  Convex is the point); sessions write their test coverage (AGENTS.md). Queued
+  next-session audits (auth flow, CI codegen, matchups contract, type sharing) +
+  a design track (extract system from web/, design only novel surfaces). Still
+  blocked on `npx convex dev` first run (Phase 1, Mason).
