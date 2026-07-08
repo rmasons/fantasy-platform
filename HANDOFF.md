@@ -179,6 +179,23 @@ Add a button that calls `authStore.signInUrl(PUBLIC_CONVEX_SITE_URL, window.loca
 - **Sleeper league ID** — hardcoded `"12345"` in the web standings page; replace once Mason provides the real ID.
 - **Convex function tests in CI** — add a root `npx vitest run` job to `verify.yml` once `convex.json` is committed and a read-only deploy key is available for codegen in CI. (Until then CI covers web tests only — `verify` does **not** run Convex function tests.)
 
+## Queued audits — good next-session tasks (no Convex deployment needed)
+
+- **Auth flow vs. current `@convex-dev/auth`** — `web/src/lib/auth.svelte.ts` +
+  the callback route are hand-rolled (no official Svelte adapter); verify against
+  the library's current docs before Phase 1 wiring, including how token refresh
+  is supposed to work for non-React clients (known gap above).
+- **CI codegen** — investigate whether `npx convex codegen` runs in CI without a
+  linked deployment (newer CLI versions); if so, add a root `npx vitest run` +
+  typecheck job to `verify.yml`. Closes the "Convex tests in CI" gap — today CI
+  passes even if every Convex function is broken.
+- **`docs/slices/matchups.md`** — write the contract next; it's the Convex
+  data-modeling exemplar (doc shape: per roster-week vs. per matchup; indexes
+  like `by_league_week`; storing `players_points`; season keying for history).
+- **Type sharing** — `StandingRow` is defined twice (`convex/lib/standings.ts`
+  and `web/src/lib/standings.ts`) and will drift; plan for the web to import
+  types from the Convex-generated API instead.
+
 ## Run it
 
 ```bash
@@ -218,7 +235,9 @@ Full sequenced plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**. Short version:
 
 Pattern per slice: schema table(s) → mutation (upsert) → action (ingest from Sleeper)
 → query → web component. Opus writes the contract; Sonnet builds the web fixture-first
-then wires the live query; Mason owns or delegates ingestion + logic.
+then wires the live query; **Mason writes the Convex functions himself (he's using
+this project to learn Convex) and a session writes their test coverage** — see the
+TDD rules in [AGENTS.md](AGENTS.md).
 
 ## Session log
 
@@ -239,4 +258,8 @@ then wires the live query; Mason owns or delegates ingestion + logic.
   a "beyond fantasy-tds" section of new features (luck analysis, playoff odds,
   LLM recaps, draft companion, …). Decision: the Contentful blog migrates into
   Convex, merged with the LLM recap feature (posts were already LLM-written last
-  season). Still blocked on `npx convex dev` first run (Phase 1, Mason).
+  season). Working-agreement update: Mason writes Convex functions himself (learning
+  Convex is the point); sessions write their test coverage (AGENTS.md). Queued
+  next-session audits (auth flow, CI codegen, matchups contract, type sharing) +
+  a design track (extract system from web/, design only novel surfaces). Still
+  blocked on `npx convex dev` first run (Phase 1, Mason).

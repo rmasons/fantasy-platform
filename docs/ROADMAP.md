@@ -81,6 +81,24 @@ Suggested first pick: **luck & schedule analysis** — it lands right after the
 matchups slice with no new ingestion, and it's the feature leagues actually argue
 about weekly.
 
+## Design track (parallel — never blocks backend work)
+
+Since the backend is the Convex-learning focus, design runs as a side track
+against fixtures:
+
+1. **Extract before designing.** The existing `web/` standings page already sets
+   the visual language (navy/amber, `font-sport`, desktop table + mobile cards).
+   First step is extracting a design system (`system.md`) from that code so every
+   later page stays consistent instead of inventing its own look.
+2. **Design only the novel surfaces.** Data-table pages (standings, matchups,
+   rosters, transactions) are covered by the fixture-first TDD flow — mockups add
+   little. Design-first pays off on pages with no fantasy-tds precedent: the
+   **blog reading experience**, the **live draft companion**, and the
+   **luck / playoff-odds dashboards** (chart-heavy; deserve a deliberate
+   visualization pass).
+3. Slice contracts define the data shapes, so designs can be produced against
+   fixtures at any time without waiting on ingestion.
+
 ## Platform / infra follow-ups
 
 - **Convex function tests in CI** — root `npx vitest run` job in `verify.yml`

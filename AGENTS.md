@@ -10,12 +10,13 @@ and architecture.
 |---|---|---|
 | **Orchestrator / architect / reviewer** | **Opus** | Decompose work, write the contract + tests + acceptance criteria per slice, decide what to delegate, review & verify, own architecture |
 | **Implementer fleet** | **Sonnet subagents** | Take a tight spec → make the failing tests pass → run checks. Used for frontend and Convex function implementation |
-| **Backend / product owner** | **Mason** | Owns priorities and slice sequencing; builds ingestion logic and Convex mutations on request; gives frontend feedback |
+| **Backend / product owner** | **Mason** | Owns priorities and slice sequencing; **writes the Convex functions himself — this project is his vehicle for learning Convex**; gives frontend feedback |
 | **VCS / rote chores** | **Haiku** | git commits, pushes, PR creation, branch ops, and other mechanical tasks — never spend a bigger model on these |
 
 ## The loop — test-driven, every slice
 
 **TDD is non-negotiable. No implementation before a failing test that specifies it.**
+(One sanctioned exception: Mason-authored Convex code — see TDD rules below.)
 
 1. **Contract** — Opus writes the API/data contract + acceptance criteria for the slice.
 2. **Red** — write the failing tests first (they encode the contract and the behavior).
@@ -35,6 +36,15 @@ A slice is **done** only when its tests are green in CI.
   (run mutation twice, same result).
 - Keep `convex/lib/` logic free of `ctx.db` so it's unit-testable without a Convex
   runtime.
+- **Mason's Convex code gets session-written tests.** Because this project is
+  Mason's vehicle for *learning Convex*, he writes the Convex functions himself;
+  a Claude session then writes the unit / `convex-test` coverage for that code.
+  This is the one sanctioned deviation from strict test-first: the contract still
+  comes first, but for Mason-authored Convex functions the tests may follow the
+  implementation. The session writing the tests should treat it as a review —
+  test the contract, probe edges (null/absent Sleeper fields, idempotency), and
+  flag anything that looks wrong rather than writing tests that enshrine a bug.
+  Also use the tests to explain Convex concepts back to Mason where relevant.
 
 ### Commands
 - **Convex dev:** `npx convex dev` (watches `convex/`, pushes schema + functions on change; generates `convex/_generated/`)
