@@ -55,6 +55,31 @@ Explicitly **out of scope** (carried over from fantasy-tds decisions): live
 in-game scoring; the FAAB easter-egg hunt (slated for removal there); the
 Contentful blog (revisit only if the league asks).
 
+## New features — beyond fantasy-tds
+
+Ideas the old app never had, ranked roughly by value-for-effort. Everything here
+is computable from data the slices above already ingest — **no projections
+provider needed** (the Monte Carlo uses each team's own scoring history). The
+first three are almost pure `convex/lib/` functions: cheap, unit-testable, high
+delight.
+
+| Feature | What | Depends on |
+|---|---|---|
+| **Luck & schedule analysis** | All-play record (your record if you played everyone every week), expected wins vs. actual, "with X's schedule you'd be 9–4" swaps. The classic league argument, settled with math | matchups |
+| **Optimal-lineup / bench-regret tracker** | Weekly "points left on bench," lineup-efficiency %, season leaderboard of worst start/sit calls (`players_points` is in the matchup payload) | matchups, players |
+| **Playoff odds (Monte Carlo)** | Simulate the rest of the season by sampling each team's scoring distribution → playoff/bye/title odds per team, updated weekly; clinch/elimination scenarios | matchups, nflState |
+| **Weekly recap generator** | LLM-written weekly recap (Claude API from a Convex action): blowouts, narrow escapes, bench regrets, records approached, rivalry results. Feeds the notification layer as an email/digest | matchups, records; pairs with notifications |
+| **Preseason predictions & ballots** | Members predict final standings + champion before week 1; ballots lock, auto-score at season end, bragging-rights leaderboard | auth |
+| **League votes & polls** | Rule-change votes with quorum + a recorded constitution changelog. Convex reactivity gives live tallies for free | auth, admin |
+| **Live draft companion** | Real-time draft board (poll `/draft/{id}/picks` during the draft) with **keeper costs overlaid** and best-available by positional need — the thing Sleeper's own UI can't show because it doesn't know the league's keeper rules | drafts, players, keepers |
+| **Dues & payouts ledger** | Who's paid, payout structure, side pots — same auditable-ledger pattern as FAAB, for real money | auth, admin |
+| **Record-chase alerts** | Weekly cron diff: someone's approaching an all-time record (season points pace, single-game high) → notify the league before it happens, not after | records, notifications |
+| **Punishment tracker** | Last-place punishment history with photo evidence (Convex file storage) — the page nobody wants to be on | season chains |
+
+Suggested first pick: **luck & schedule analysis** — it lands right after the
+matchups slice with no new ingestion, and it's the feature leagues actually argue
+about weekly.
+
 ## Platform / infra follow-ups
 
 - **Convex function tests in CI** — root `npx vitest run` job in `verify.yml`

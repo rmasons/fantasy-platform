@@ -210,6 +210,10 @@ Full sequenced plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**. Short version:
   rankings, records/history, manager profiles, rivalry + digest, trade/waiver
   analytics, keepers + FAAB ledger, admin surface, Sleeper account linking,
   multi-league, notifications, Playwright smoke.
+- **Beyond parity** (new to this app): luck/schedule analysis, bench-regret
+  tracker, Monte Carlo playoff odds, LLM weekly recap, preseason ballots,
+  league votes, live draft companion, dues ledger, record-chase alerts,
+  punishment tracker.
 
 Pattern per slice: schema table(s) → mutation (upsert) → action (ingest from Sleeper)
 → query → web component. Opus writes the contract; Sonnet builds the web fixture-first
@@ -230,5 +234,7 @@ then wires the live query; Mason owns or delegates ingestion + logic.
   `+page.svelte`, not `load()` (2e corrected). Flagged latent ingest bugs (Sleeper
   `null` vs `v.optional`, missing `fpts_decimal` → NaN, avatar ID vs URL, `daily`
   fan-out) as pre-2d fixes. Added [docs/ROADMAP.md](docs/ROADMAP.md): foundation
-  slices (players / nflState / season chains) + fantasy-tds parity buildouts.
-  Still blocked on `npx convex dev` first run (Phase 1, Mason).
+  slices (players / nflState / season chains), fantasy-tds parity buildouts, and
+  a "beyond fantasy-tds" section of new features (luck analysis, playoff odds,
+  LLM recaps, draft companion, …). Still blocked on `npx convex dev` first run
+  (Phase 1, Mason).
