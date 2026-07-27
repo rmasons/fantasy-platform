@@ -3,8 +3,9 @@
 From a fresh clone to a running API with real data. **Do these in order** — each
 step produces something the next one needs.
 
-Nothing in this repo has ever been executed. Treat the scaffold as a starting
-point, not a verified base: expect to fix things in steps 3–4.
+There is no application code here yet — that is deliberate. This page gets your
+environment and accounts ready; **[docs/build/](build/)** specifies what to
+build, and you write it.
 
 Stack rationale: [ADR 0002](decisions/0002-ios-first-openapi-python-api.md).
 Auth: [ADR 0001](decisions/0001-auth-provider-and-native-clients.md).
@@ -14,15 +15,19 @@ Auth: [ADR 0001](decisions/0001-auth-provider-and-native-clients.md).
 | # | Thing | Why | Needed before |
 |---|---|---|---|
 | 1 | Python env + deps | — | everything |
-| 2 | Local Postgres (Docker) | Dev database; no cloud account needed | 3 |
-| 3 | Migrations | Creates the schema | 4 |
-| 4 | Run the API | Confirms the scaffold works; `/docs` is the live OpenAPI UI | 5 |
-| 5 | Firebase project ID | Verifies ID tokens from both clients | auth-gated routes |
-| 6 | Neon project | Hosted Postgres for `dev` / `test` / `main` | deploying |
-| 7 | Cloud Run | Hosts the API | deploying |
+| 2 | Local Postgres (Docker) | Dev database; no cloud account needed | building spec 01 |
+| 3 | Firebase project ID | Verifies ID tokens from both clients | build spec 05 |
+| 4 | Neon project | Hosted Postgres for `dev` / `test` / `main` | deploying |
+| 5 | Cloud Run | Hosts the API | deploying |
 
-**Steps 1–4 are enough to start building.** Steps 5–7 are deferrable until
-there's an auth-gated route or something worth deploying.
+**Steps 1–2 are all you need to start.** Then go to
+**[docs/build/](build/)** — spec 01 builds the config, pool, migration runner,
+and health routes; spec 02 writes the first migration. Steps 3–5 here are
+deferrable until there's an auth-gated route or something worth deploying.
+
+> There is **no application code in this repo** — that is deliberate. It is
+> specified in `docs/build/` and you write it. See the "specs, not scaffolds"
+> rule in [AGENTS.md](../AGENTS.md).
 
 ---
 
@@ -38,6 +43,9 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 > `pyproject.toml` sets `package = false` — this is an application, not a
 > library. Everything runs with `PYTHONPATH=src`.
+>
+> The dependency list predates the build specs; you will add to it as you go
+> (`pytest-httpserver` for spec 03, for one).
 
 ## 2 — Local Postgres
 
@@ -56,40 +64,24 @@ export DATABASE_URL="postgresql://fantasy:fantasy@127.0.0.1:5432/fantasy"
 Better: copy `.env.example` to `.env` and fill it in, so you aren't re-exporting
 per shell.
 
-## 3 — Apply migrations
+## Next — build it
 
-```sh
-PYTHONPATH=src python -m core.db.migrate
-```
+Everything from here is written by you, from the specs in
+**[docs/build/](build/)**:
 
-Applies `migrations/*.sql` in filename order.
+| Spec | Gets you |
+|---|---|
+| [01 Foundation](build/01-foundation.md) | Config, DB pool, migration runner, `uvicorn` running, `/ping` + `/health`, `/docs` |
+| [02 Schema & migrations](build/02-schema-and-migrations.md) | `app.*` / `sleeper.*` split, first migration |
+| [03 Sleeper client](build/03-sleeper-client.md) | Typed read-only Sleeper client |
+| [04 Standings slice](build/04-standings-slice.md) | Ingest → compute → endpoint → OpenAPI |
+| [05 Auth](build/05-auth.md) | Everything below in step 3 |
 
-> `0001_init.sql` was written before the Convex detour and has never run. If it
-> errors, fix it — do not work around it. Read `ROLES.sql` too; it may assume a
-> role setup that Neon provisions differently than local Postgres.
+Once spec 01 is built, the commands in [AGENTS.md](../AGENTS.md) apply —
+`uvicorn` on :8000, `/docs` for the live OpenAPI UI, and
+`python -m core.db.migrate` for migrations.
 
-Verify:
-
-```sh
-docker compose exec db psql -U fantasy -d fantasy -c '\dt'
-```
-
-## 4 — Run the API
-
-```sh
-PYTHONPATH=src uvicorn api.main:app --reload
-```
-
-- http://localhost:8000/health → expect `{"status": "ok"}` or similar
-- **http://localhost:8000/docs** → the interactive OpenAPI UI
-
-That `/docs` page is worth pausing on: it is generated from your Pydantic models,
-and it is the same spec that will generate the TypeScript and Swift clients. If
-an endpoint looks wrong there, it is wrong everywhere.
-
-The raw spec is at http://localhost:8000/openapi.json.
-
-## 5 — Firebase (for auth-gated routes)
+## 3 — Firebase (for auth-gated routes)
 
 Use the **same project as fantasy-tds** — shared UIDs are the point (ADR 0001).
 The project ID is in `fantasy-tds/.env` as `PUBLIC_FIREBASE_PROJECT_ID`.
@@ -110,7 +102,7 @@ cookies, so the web and iOS auth paths are identical.
 > [Firebase Auth web](https://firebase.google.com/docs/auth/web/start) ·
 > [Firebase Auth iOS](https://firebase.google.com/docs/auth/ios/start)
 
-## 6 — Neon (hosted Postgres)
+## 4 — Neon (hosted Postgres)
 
 Create a project at [neon.com](https://neon.com). Free tier: 0.5 GB and 100
 CU-hours per project — orders of magnitude more than one league needs.
@@ -131,7 +123,7 @@ Copy the **pooled** connection string (Neon's PgBouncer endpoint) into
 > More: [Neon scale to zero](https://neon.com/docs/introduction/scale-to-zero) ·
 > [branching](https://neon.com/docs/introduction/branching)
 
-## 7 — Cloud Run (hosting the API)
+## 5 — Cloud Run (hosting the API)
 
 The API needs a **container**, not serverless functions: `psycopg-pool` keeps
 long-lived connections, which per-invocation runtimes cannot hold.
@@ -186,7 +178,7 @@ run once matchups settle Monday night.
 |---|---|
 | `ModuleNotFoundError: api` / `core` | Missing `PYTHONPATH=src` |
 | `connection refused` on 5432 | `docker compose up -d` not run, or container unhealthy |
-| Migration errors on first run | Expected — `0001_init.sql` has never executed. Fix it, don't skip it |
-| `/docs` empty or missing routes | Router not registered in `api/main.py` |
+| Migration errors on first run | Your first migration is spec 02's; re-read its field tables and constraints |
+| `/docs` empty or missing routes | Router not registered in the app factory — spec 01 |
 | 401 on every request | `FIREBASE_PROJECT_ID` unset, or the client is sending a token from a different project |
 | First request after idle takes seconds | Neon + Cloud Run cold starts. Expected on free tiers |

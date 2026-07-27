@@ -9,6 +9,16 @@
   stack via `firebase-admin`. Its *iOS reasoning* — that ConvexMobile makes a
   native client nearly free — is superseded by the findings below.
 
+> **Amendment, 2026-07-27 (same day).** This ADR was written while the 454-line
+> Python scaffold in `src/` still existed, and several passages below describe
+> it in the present tense. It has since been **deleted** — it was written *for*
+> Mason by an earlier session, which defeats the purpose of a project whose
+> point is learning API development. Its design reasoning was carried into
+> [`docs/build/`](../build/) as requirements first. The stack decision below is
+> unaffected; only the starting position changed, from "a scaffold to fix" to "a
+> spec to implement." See the "specs, not scaffolds" rule in
+> [AGENTS.md](../../AGENTS.md).
+
 ## Context
 
 ### The goal moved
@@ -64,12 +74,16 @@ failing on someone's phone.
 This reframing is what selects the stack, because it changes the question from
 "which backend is nicest to write" to "which backend *emits a contract*."
 
-### The scaffold already in this repo answers it
+### The scaffold already in this repo answered it
 
-`src/` — marked superseded, never deleted — is **FastAPI + Pydantic + Postgres +
+`src/` — marked superseded, never deleted — was **FastAPI + Pydantic + Postgres +
 `firebase-admin`**, 454 lines across routes, a Sleeper client, ingestion
 backfill/daily, config, and a connection pool. It was abandoned for the Convex
-pivot, not because it was wrong.
+pivot, not because it was wrong. That it already existed, in the right language
+with the right auth dependency, is evidence the original instinct was sound.
+
+(Per the amendment above, the code is gone and its reasoning lives in
+`docs/build/`. The point stands: the answer was already here.)
 
 ## Decision
 
@@ -186,7 +200,12 @@ keeping Svelte 5, which is already familiar.
 - The whole feature roadmap — it was never stack-specific.
 - The slice discipline and TDD loop from `AGENTS.md`, retargeted to pytest.
 - `StandingsTable.svelte` and its 9 passing tests.
-- `docker-compose.yml` (local Postgres) and `migrations/0001_init.sql`.
+- `docker-compose.yml` (local Postgres) and `migrations/ROLES.sql`.
+- The scaffold's *design reasoning*, carried into `docs/build/` as requirements
+  after the code itself was removed (see the 2026-07-27 entry in HANDOFF): the
+  `app.*`/`sleeper.*` ownership split, `min_size=0` so the API boots with the DB
+  down, `/ping` vs `/health` as liveness vs readiness, and the local-auth bypass
+  that must fail loudly outside local.
 
 ## Alternatives considered
 

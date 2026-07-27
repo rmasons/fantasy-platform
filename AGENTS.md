@@ -70,6 +70,9 @@ CI runs pytest + ruff + web vitest.
 
 ## Conventions
 
+- **Build specs live in [docs/build/](docs/build/)** — one per buildable unit,
+  written just ahead of the work, never months ahead. `docs/slices/*.md` remains
+  the place for per-feature data contracts once a slice is in flight.
 - **The OpenAPI spec is the coordination point.** Pydantic models define it;
   both clients are generated from it. Change the model first, regenerate second,
   update consumers third. Never hand-write a client type.
@@ -94,6 +97,12 @@ CI runs pytest + ruff + web vitest.
   **Sonnet** = implementation (default — escalate to Opus for subtle/hard tasks);
   **Haiku** = mechanical VCS chores (commits, pushes, PRs, branch ops). The
   tiering is a default, not a rule.
+- **Specs, not scaffolds.** This project is Mason's vehicle for learning API
+  development in Python, so **do not hand him working implementation code**.
+  Produce a build spec in `docs/build/`: goal, design decisions *and their
+  reasoning*, the contract (field tables, response shapes, signatures),
+  acceptance criteria, and edge cases — then let him write it. Specify shapes,
+  not bodies. Tests are the carve-out above: he implements, a session covers.
 - **Spec quality gates output** — the orchestrator's main job is crisp, testable
   contracts. Vague spec → bad code.
 - **Delegate sizable, well-bounded tasks**; do trivial edits inline (spawning has

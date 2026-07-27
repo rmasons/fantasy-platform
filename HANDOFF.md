@@ -34,12 +34,14 @@ Working model + TDD loop: [AGENTS.md](AGENTS.md). Architecture: [README.md](READ
 
 ### ✅ Done
 
-- **Python scaffold (`src/`, 454 lines)** — FastAPI app + deps, health and
-  leagues routes, Pydantic schemas, config, Postgres pool + migrate runner,
-  Sleeper HTTP client, ingestion `backfill` / `daily` entrypoints. **Written,
-  never run.**
-- **`migrations/0001_init.sql`** + `ROLES.sql`; `docker-compose.yml` for local
-  Postgres bound to 127.0.0.1.
+- **Build specs in [`docs/build/`](docs/build/)** — 01 Foundation, 02 Schema &
+  migrations, 03 Sleeper client, 04 Standings slice, 05 Auth. Each carries the
+  goal, the design decisions *and their reasoning*, a precise contract,
+  checkable acceptance criteria, and the Sleeper edge cases. **Mason writes the
+  implementation from these** — see the "specs, not scaffolds" rule in
+  [AGENTS.md](AGENTS.md).
+- **`migrations/ROLES.sql`**; `docker-compose.yml` for local Postgres bound to
+  127.0.0.1.
 - **CI/CD:** `dev → test → main`; advisory review on `dev`; **BLOCKING**
   `promotion-review` on `test`/`main`; branch protection (`enforce_admins`) ON;
   `CLAUDE_CODE_OAUTH_TOKEN` set. Validated end-to-end.
@@ -70,57 +72,32 @@ something worth deploying.
 
 ---
 
-## Phase 2 — Rebuild the standings slice (TDD order)
+## Phase 2 — Build it
 
-The slice is unchanged in *contract* and entirely changed in *mechanics*.
-`docs/slices/standings.md` still describes the Convex version — **rewrite it
-first**; the data shape and ranking rules in it are still correct.
+Work through [`docs/build/`](docs/build/) in order. 01 → 02 → 03 gets a running
+API on a real schema; 04 is the first feature that goes end to end.
 
-### 2a — Migration + schema
+| # | Spec | Gets you |
+|---|---|---|
+| 01 | [Foundation](docs/build/01-foundation.md) | Config, DB pool, migration runner, app entry, health routes |
+| 02 | [Schema & migrations](docs/build/02-schema-and-migrations.md) | The `app.*` / `sleeper.*` split and the first migration |
+| 03 | [Sleeper client](docs/build/03-sleeper-client.md) | Typed, tested read-only Sleeper client |
+| 04 | [Standings slice](docs/build/04-standings-slice.md) | Ingest → compute → endpoint → OpenAPI |
+| 05 | [Auth](docs/build/05-auth.md) | Firebase token verification, `users` table, Sleeper link |
 
-`migrations/0002_*.sql` for `leagues`, `league_users`, `rosters`. `0001_init.sql`
-predates the Convex detour — read it before adding, it may already cover this.
+Specs 06 (OpenAPI clients + CI drift gate), 07 (web SPA), and 08 (iOS) are
+deliberately unwritten — speccing them now means designing against shapes that
+do not exist yet. They get written when you reach them.
 
-### 2b — Pure logic: `compute_standings` (unit, no DB)
-
-`src/core/standings.py` + `tests/core/test_standings.py`.
-Contract: ranks by wins desc, ties broken by fpts desc; null avatar handled;
-joins display names from `league_users`; `avatar` is the full
-`https://sleepercdn.com/avatars/thumbs/{id}` URL, not the bare ID.
-
-### 2c — Ingestion: backfill + idempotency
-
-Extend `src/ingestion/backfill.py` to walk `previous_league_id`. Tests assert
-running twice yields the same row count.
-
-**Fix the known Sleeper edge cases here** (carried over — they are data facts,
-not Convex facts): Sleeper returns explicit `null` for `previous_league_id`,
-`avatar`, and `metadata.team_name`; `fpts_decimal` / `fpts_against_decimal` can
-be absent and yield `NaN`. Coerce at the boundary.
-
-### 2d — Route + response model
-
-`GET /leagues/{league_id}/standings` returning `list[StandingRow]`. Tests via
-`TestClient`: shape, ordering, 404 for unknown league, auth gating.
-
-### 2e — Regenerate clients, wire the web SPA
-
-Replace `web/` (SvelteKit) with Svelte 5 + Vite. Port `StandingsTable.svelte`
-and its 9 tests. Data comes from the generated TS client — no fixture, no
-hand-written types.
-
-### 2f — Auth
-
-`current_user` dependency verifying Firebase ID tokens via `firebase-admin`;
-sign-in button on the web client using the Firebase web SDK. The pattern is
-already working in `fantasy-tds/src/routes/login/+page.svelte`.
-
----
+Ask for a coverage pass once a spec's acceptance criteria are green; per
+[AGENTS.md](AGENTS.md) you implement, a session writes the tests as a review.
 
 ## Known gaps to address later
 
-- **Sleeper `null` vs absent fields** — see 2c. Details and test cases in
-  `docs/slices/standings.md` (still accurate on this point).
+- **Sleeper `null` vs absent fields** — explicit JSON `null` for
+  `previous_league_id` / `avatar` / `metadata.team_name`, and a missing
+  `fpts_decimal` that yields `NaN`. Full detail and required behaviour in
+  [build spec 04](docs/build/04-standings-slice.md#edge-cases).
 - **`users` table** — ADR 0001 specifies a table keyed by Firebase UID, shaped to
   mirror fantasy-tds's `UserProfile` so the existing Firestore collection imports
   by UID with the twelve real Sleeper links intact. Not yet written as a
@@ -135,13 +112,16 @@ already working in `fantasy-tds/src/routes/login/+page.svelte`.
   Postgres ("no public exposure"). Accepted in ADR 0002, but revisit before the
   FAAB and dues ledgers land.
 - **Sleeper league ID** — the real one is still needed for any ingestion run.
-- **`docs/slices/standings.md`** is Convex-shaped; rewrite when 2a starts.
+- **`docs/slices/standings.md`** is Convex-shaped and superseded by
+  [build spec 04](docs/build/04-standings-slice.md); delete it once 04 is built.
 
 ## Queued audits — good next-session tasks
 
-- **Read `migrations/0001_init.sql` and `src/` end to end.** They were written
-  before the Convex detour and have never been executed. Assume bugs; the
-  scaffold is a starting point, not a verified base.
+- **`migrations/ROLES.sql` has never been applied.** It defines `ingest_rw` /
+  `web_rw` least-privilege roles and is applied out-of-band, not by the
+  migration runner (managed hosts provision roles differently — Neon does not
+  hand you superuser). Read it before the first deploy; spec 02 explains the
+  ownership split it enforces.
 - **OpenAPI drift gate** — decide the mechanism (commit generated clients, CI
   regenerates and diffs) and add it to `verify.yml` before the first slice
   lands, so it is never retrofitted.
@@ -186,3 +166,12 @@ response model → regenerate clients → web/iOS view.
   Svelte SPA over SvelteKit because a serverless client makes drift structurally
   impossible. ([ADR 0002](docs/decisions/0002-ios-first-openapi-python-api.md).)
   Still blocked on Phase 1 — nothing in this repo has ever been run.
+- **2026-07-27 (later)** — Switched working mode: **build specs instead of
+  scaffolds**. The 454-line `src/` scaffold was written *for* Mason by an earlier
+  session, which defeats the point of a project whose purpose is learning API
+  development in Python. Deleted it (recoverable at `38813c3~1`) and replaced it
+  with `docs/build/01`–`05`, which carry the scaffold's design reasoning —
+  `app.*`/`sleeper.*` ownership split, `min_size=0` so the API boots with the DB
+  down, `/ping` vs `/health` as liveness vs readiness, the local-auth bypass and
+  why it must fail loudly in prod — as *requirements* rather than as code.
+  Recorded the rule in AGENTS.md so future sessions don't re-scaffold.

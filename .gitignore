@@ -5,8 +5,10 @@ __pycache__/
 .env
 .pytest_cache/
 .ruff_cache/
-dist/
-build/
+# Anchored to the repo root: unanchored `build/` also matched `docs/build/`
+# and silently excluded the build specs.
+/dist/
+/build/
 *.egg-info/
 .DS_Store
 node_modules/
