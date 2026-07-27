@@ -10,254 +10,179 @@ _Last updated: 2026-07-27_
 
 ## What this is
 
-**fantasy-platform** — a from-scratch rebuild of the fantasy-football companion app
-([fantasy-tds](https://github.com/rmasons/fantasy-tds)) on a **Convex** backend:
+**fantasy-platform** — an API-first rebuild of the fantasy-football companion app
+([fantasy-tds](https://github.com/rmasons/fantasy-tds)), which remains the running
+production app and the parity checklist.
 
-- **Convex** (TypeScript queries / mutations / actions + document DB + native crons)
-  is the sole backend. No separate HTTP server, no managed Postgres.
-- **SvelteKit** frontend in `web/` consuming Convex directly via `convex-svelte`
-  (reactive, real-time queries — no REST polling).
-- **Firebase Auth** (Google sign-in) for identity — **the same Firebase project
-  fantasy-tds uses**, wired to Convex as a standard OIDC provider via
-  `convex/auth.config.ts`. Convex validates ID tokens against Google's public
-  JWKS: no `firebase-admin`, no service-account key, no session cookie. Shared
-  UIDs mean the existing user↔Sleeper links import as-is and both apps can run
-  side by side during cutover. **Replaced `@convex-dev/auth` on 2026-07-27** —
-  rationale, alternatives (incl. Clerk, rejected), and the iOS consequence in
-  [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
+- **FastAPI + Pydantic** on **Neon Postgres** is the entire backend. Pydantic
+  models generate the **OpenAPI spec**, which generates **both clients** — so
+  logic lives in one place and cannot drift.
+- **Svelte 5 + Vite SPA** for web (static; no server, therefore no data path
+  except the API).
+- **SwiftUI** for iOS, using `swift-openapi-generator` — the primary target.
+- **Firebase Auth** for identity (same project as fantasy-tds), ID tokens
+  verified server-side by `firebase-admin`.
 
-*The Python FastAPI scaffold (`src/`, `migrations/`) is superseded. It remains in the
-repo as a data-model reference; all new work goes in `convex/`.*
+**iOS is the primary goal.** That is the decision everything else hangs off; see
+[ADR 0002](docs/decisions/0002-ios-first-openapi-python-api.md). Auth rationale
+is [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md), which
+stands unchanged.
 
-Working model + TDD loop: see [AGENTS.md](AGENTS.md). Architecture details in [README.md](README.md).
+Working model + TDD loop: [AGENTS.md](AGENTS.md). Architecture: [README.md](README.md).
 
 ## Status at a glance
 
 ### ✅ Done
 
-- **Frontend (`web/`):** SvelteKit + Svelte 5 + Tailwind v4 + Vitest; standings page
-  built test-first off a fixture (no backend required). 9 tests green.
+- **Python scaffold (`src/`, 454 lines)** — FastAPI app + deps, health and
+  leagues routes, Pydantic schemas, config, Postgres pool + migrate runner,
+  Sleeper HTTP client, ingestion `backfill` / `daily` entrypoints. **Written,
+  never run.**
+- **`migrations/0001_init.sql`** + `ROLES.sql`; `docker-compose.yml` for local
+  Postgres bound to 127.0.0.1.
 - **CI/CD:** `dev → test → main`; advisory review on `dev`; **BLOCKING**
-  `promotion-review` + `verify` on `test`/`main`; branch protection (`enforce_admins`)
-  ON; `CLAUDE_CODE_OAUTH_TOKEN` set. Validated end-to-end.
-- **Convex backend scaffold:** all files written to `convex/` —
-  `schema.ts` (users + leagues/leagueUsers/rosters),
-  `auth.config.ts` (validates Firebase ID tokens via OIDC), `http.ts`, `crons.ts`,
-  `lib/standings.ts` (pure `computeStandings` — unit-testable without Convex),
-  `lib/sleeper.ts` (fetch wrapper for Sleeper API),
-  `queries/leagues.ts` (`getStandings` + `activeLeagueIds`),
-  `mutations/ingestion.ts` (idempotent upserts),
-  `actions/ingest.ts` (`backfill` + `daily`).
-- **Web Convex wiring:** `convex` + `convex-svelte` + `firebase` in
-  `web/package.json`; `setupConvex` + `setupAuth` in layout; Firebase-backed auth
-  store; sign-in/out button on the index page (closes old step 2f).
-- **CI fixed:** `verify.yml` now runs web vitest + svelte-check only (Python steps removed).
-- **Root package.json:** `convex` as the only dep (`@convex-dev/auth` and
-  `@auth/core` removed); `convex-test`, `vitest`, `typescript` as devDeps for
-  Convex function tests.
-- **Env documented:** `.env.example` (`FIREBASE_PROJECT_ID`); `web/.env.example`
-  (`PUBLIC_CONVEX_URL` + six `PUBLIC_FIREBASE_*`, copied from fantasy-tds).
-- **Auth swap (2026-07-27):** `@convex-dev/auth` → Firebase Auth. See
-  [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md) and the
-  ordered first-run guide in [docs/SETUP.md](docs/SETUP.md).
+  `promotion-review` on `test`/`main`; branch protection (`enforce_admins`) ON;
+  `CLAUDE_CODE_OAUTH_TOKEN` set. Validated end-to-end.
+- **Decisions recorded:** ADR 0001 (Firebase Auth), ADR 0002 (iOS-first,
+  OpenAPI-contracted Python API).
+- **Salvage from the Convex detour:** `StandingsTable.svelte` + 9 passing tests,
+  and the standings fixture. The component is stack-agnostic and ports directly.
+
+### ⚠️ Reverted
+
+The **Convex backend** (2026-07-06 → 2026-07-27) is removed — see ADR 0002. It
+was adopted as a vehicle for learning Convex, before iOS became the goal; once
+iOS came first, `convex-swift` (0.8.1, five months stale, no offline, no
+optimistic updates) could not carry a native client, and Convex emits no API
+contract. Everything it did is now done by FastAPI, Postgres, and the OpenAPI
+spec.
 
 ---
 
-## Phase 1 — Enable (one-time, Mason does this)
+## Phase 1 — Stand it up (one-time, Mason does this)
 
-**Moved to [docs/SETUP.md](docs/SETUP.md)** — the ordered first-run guide, kept
-in one place so it doesn't drift from the code. It covers: install → link a
-Convex deployment → point Convex at the fantasy-tds Firebase project by setting
-`FIREBASE_PROJECT_ID` → fill `web/.env.local` → verify sign-in end-to-end →
-backfill a real league. Shorter than it was: the Firebase project already
-exists, so there is no identity provider to stand up.
+**Nothing here has ever been run.** Ordered guide: **[docs/SETUP.md](docs/SETUP.md)**.
+Short version: Python env → local Postgres via Docker → migrate → run the API →
+create a Neon project → point the API at Firebase for token verification.
 
-**Nothing in `convex/` compiles until step 2 runs** (`convex/_generated/` does
-not exist yet). That is still the blocker on all of Phase 2.
-
-The old Phase 1 here described Convex Auth setup — JWT signing keys, `SITE_URL`,
-and a Google Cloud OAuth client. None of those exist any more; see
-[ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
+Local-only is enough to start; Neon and Cloud Run are not needed until there is
+something worth deploying.
 
 ---
 
-## Phase 2 — Build (standings slice, TDD order)
+## Phase 2 — Rebuild the standings slice (TDD order)
 
-**Do Phase 1 first.** All tasks below assume `convex/_generated/` exists and types compile.
+The slice is unchanged in *contract* and entirely changed in *mechanics*.
+`docs/slices/standings.md` still describes the Convex version — **rewrite it
+first**; the data shape and ranking rules in it are still correct.
 
-### 2a — Convex function tests: `computeStandings` (pure unit, no DB)
+### 2a — Migration + schema
 
-File: `convex/lib/standings.test.ts`  
-Runner: `npx vitest run` (root, edge-runtime)  
-Contract: ranks by wins desc, ties broken by fpts desc; null avatar handled; joins names from leagueUsers.
+`migrations/0002_*.sql` for `leagues`, `league_users`, `rosters`. `0001_init.sql`
+predates the Convex detour — read it before adding, it may already cover this.
 
-Write the tests first (red), then confirm `convex/lib/standings.ts` makes them green.
+### 2b — Pure logic: `compute_standings` (unit, no DB)
 
-### 2b — Convex function tests: upsert idempotency (`convex-test`)
+`src/core/standings.py` + `tests/core/test_standings.py`.
+Contract: ranks by wins desc, ties broken by fpts desc; null avatar handled;
+joins display names from `league_users`; `avatar` is the full
+`https://sleepercdn.com/avatars/thumbs/{id}` URL, not the bare ID.
 
-File: `convex/mutations/ingestion.test.ts`  
-Import: `import { convexTest } from "convex-test"; import schema from "../schema";`  
-Assert: call each upsert mutation twice with the same payload → same document count, no duplicates.
+### 2c — Ingestion: backfill + idempotency
 
-### 2c — Convex function test: `getStandings` query (end-to-end, `convex-test`)
+Extend `src/ingestion/backfill.py` to walk `previous_league_id`. Tests assert
+running twice yields the same row count.
 
-File: `convex/queries/leagues.test.ts`  
-Seed rosters + leagueUsers → call `getStandings` → assert sorted order matches expected ranking.
+**Fix the known Sleeper edge cases here** (carried over — they are data facts,
+not Convex facts): Sleeper returns explicit `null` for `previous_league_id`,
+`avatar`, and `metadata.team_name`; `fpts_decimal` / `fpts_against_decimal` can
+be absent and yield `NaN`. Coerce at the boundary.
 
-### 2d — Wire real Sleeper data
+### 2d — Route + response model
 
-Once Mason provides a real league ID:
-```bash
-# From the Convex dashboard or via a one-off action call:
-npx convex run actions/ingest:backfill '{"leagueId":"<real_id>"}'
-```
-Confirm the `getStandings` query returns correct rows in the dashboard.
+`GET /leagues/{league_id}/standings` returning `list[StandingRow]`. Tests via
+`TestClient`: shape, ordering, 404 for unknown league, auth gating.
 
-### 2e — Swap standings page fixture for live query
+### 2e — Regenerate clients, wire the web SPA
 
-File: `web/src/routes/standings/+page.svelte` (**not** `+page.ts` — `useQuery`
-uses Svelte context, so it must run during component init, not in `load()`):
-```typescript
-import { useQuery } from "convex-svelte";
-import { api } from "../../../convex/_generated/api";
-const standings = useQuery(api.queries.leagues.getStandings, { leagueId: "..." });
-```
-Delete the `+page.ts` `load()` + `$lib/api.ts` REST path (`VITE_API_BASE_URL` is a
-FastAPI-era leftover). Keep the existing `StandingsTable` component — no visual
-changes needed.
+Replace `web/` (SvelteKit) with Svelte 5 + Vite. Port `StandingsTable.svelte`
+and its 9 tests. Data comes from the generated TS client — no fixture, no
+hand-written types.
 
-### 2f — Sign-in button ✅ done (2026-07-27)
+### 2f — Auth
 
-`web/src/routes/+page.svelte` calls `authStore.signIn()` (Firebase
-`signInWithPopup` + `GoogleAuthProvider`) and shows the signed-in email +
-sign-out when `authStore.isAuthenticated`. Untested until setup runs.
+`current_user` dependency verifying Firebase ID tokens via `firebase-admin`;
+sign-in button on the web client using the Firebase web SDK. The pattern is
+already working in `fantasy-tds/src/routes/login/+page.svelte`.
 
 ---
 
 ## Known gaps to address later
 
-- **Sleeper `null` vs `v.optional` (fix BEFORE 2d)** — Sleeper returns explicit
-  `null` for `previous_league_id`, `avatar`, `metadata.team_name`; Convex
-  `v.optional(v.string())` rejects `null`, so `backfill` will throw on the first
-  real league. Also `fpts_decimal`/`fpts_against_decimal` can be absent → `NaN`.
-  Coerce with `?? undefined` / `?? 0` in `actions/ingest.ts` — details + test
-  cases in [docs/slices/standings.md](docs/slices/standings.md).
-- **Avatar is an ID, not a URL** — build `https://sleepercdn.com/avatars/thumbs/{id}`
-  in `computeStandings()`; the contract's `avatar` field is the full URL.
-- **`daily` fan-out** — replace `ctx.runAction` + `Promise.all` with
-  `ctx.scheduler.runAfter(0, …)` per league (one league's failure shouldn't abort
-  the rest; action→action is discouraged).
-- ~~**Token refresh**~~ — closed by the Firebase swap; the SDK owns refresh and
-  `forceRefreshToken` maps directly onto `getIdToken(forceRefresh)`. Typechecked
-  green against `firebase` 12.x. **One assumption left to verify at wire-up:**
-  that Convex resolves Firebase's JWKS via the discovery document rather than
-  demanding `${iss}/.well-known/jwks.json`, which Firebase 404s (ADR 0001
-  follow-up).
-- **Sleeper league ID** — hardcoded `"12345"` in the web standings page; replace once Mason provides the real ID.
-- **Convex function tests in CI** — add a root `npx vitest run` job to `verify.yml` once `convex.json` is committed and a read-only deploy key is available for codegen in CI. (Until then CI covers web tests only — `verify` does **not** run Convex function tests.)
+- **Sleeper `null` vs absent fields** — see 2c. Details and test cases in
+  `docs/slices/standings.md` (still accurate on this point).
+- **`users` table** — ADR 0001 specifies a table keyed by Firebase UID, shaped to
+  mirror fantasy-tds's `UserProfile` so the existing Firestore collection imports
+  by UID with the twelve real Sleeper links intact. Not yet written as a
+  migration. Do it with the Sleeper-linking slice.
+- **`verify.yml` still runs web vitest + svelte-check only** — needs pytest +
+  ruff, and the OpenAPI drift gate (regenerate clients, fail on diff). The two
+  Claude review workflows are stack-agnostic and unchanged.
+- **`Procfile` targets Railway**; Cloud Run is the current intent and needs a
+  `Dockerfile`. Railway remains a legitimate simpler fallback — decide when
+  there is something to deploy.
+- **Neon is a public endpoint.** The scaffold's comments assume Railway's private
+  Postgres ("no public exposure"). Accepted in ADR 0002, but revisit before the
+  FAAB and dues ledgers land.
+- **Sleeper league ID** — the real one is still needed for any ingestion run.
+- **`docs/slices/standings.md`** is Convex-shaped; rewrite when 2a starts.
 
-## Queued audits — good next-session tasks (no Convex deployment needed)
+## Queued audits — good next-session tasks
 
-- ~~**Auth flow vs. current `@convex-dev/auth`**~~ — resolved by replacing it
-  outright ([ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md)).
-  The hand-rolled callback route is deleted; Firebase's SDK owns the popup flow,
-  and it is substantially the code already running in fantasy-tds.
-- **CI codegen** — investigate whether `npx convex codegen` runs in CI without a
-  linked deployment (newer CLI versions); if so, add a root `npx vitest run` +
-  typecheck job to `verify.yml`. Closes the "Convex tests in CI" gap — today CI
-  passes even if every Convex function is broken.
-- **`docs/slices/matchups.md`** — write the contract next; it's the Convex
-  data-modeling exemplar (doc shape: per roster-week vs. per matchup; indexes
-  like `by_league_week`; storing `players_points`; season keying for history).
-- **Type sharing** — `StandingRow` is defined twice (`convex/lib/standings.ts`
-  and `web/src/lib/standings.ts`) and will drift; plan for the web to import
-  types from the Convex-generated API instead.
-
-## Run it
-
-```bash
-# 1. Install root deps (Convex CLI + function deps)
-npm install
-
-# 2. Link Convex deployment + start function watcher
-npx convex dev
-#   → creates convex.json, generates convex/_generated/
-#   → set env vars per .env.example via: npx convex env set KEY value
-
-# 3. Web dev server (separate terminal)
-cd web && npm install && npm run dev
-
-# 4. Tests
-cd web && npx vitest run   # web component tests (9 passing)
-npx vitest run             # convex function tests (none yet — add alongside each slice)
-```
+- **Read `migrations/0001_init.sql` and `src/` end to end.** They were written
+  before the Convex detour and have never been executed. Assume bugs; the
+  scaffold is a starting point, not a verified base.
+- **OpenAPI drift gate** — decide the mechanism (commit generated clients, CI
+  regenerates and diffs) and add it to `verify.yml` before the first slice
+  lands, so it is never retrofitted.
+- **iOS project skeleton** — worth standing up early enough to prove the
+  generated Swift client works end to end, but not before an endpoint exists.
 
 ## Next slices (after standings)
 
-Full sequenced plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**. Short version:
+Full sequenced plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**. The feature
+sequence and dependencies are stack-agnostic and survive the pivot intact.
 
-- **Foundations first:** players (`/players/nfl` → names for everything),
-  nflState (current week), season chains (walk `previous_league_id`).
-- **Core:** matchups (+ playoff bracket, `streak`) · rosters · transactions ·
-  drafts · superlatives.
-- **Parity buildouts** (from fantasy-tds, not previously planned): power
-  rankings, records/history, manager profiles, rivalry + digest, trade/waiver
-  analytics, keepers + FAAB ledger, admin surface, Sleeper account linking,
-  multi-league, notifications, Playwright smoke.
-- **Beyond parity** (new to this app): luck/schedule analysis, bench-regret
-  tracker, Monte Carlo playoff odds, blog + LLM weekly recap (in Convex —
-  **replaces Contentful**; Markdown posts, media in Convex file storage,
-  real-time comments), preseason ballots, league votes, live draft companion,
-  dues ledger, record-chase alerts, punishment tracker.
-
-Pattern per slice: schema table(s) → mutation (upsert) → action (ingest from Sleeper)
-→ query → web component. Opus writes the contract; Sonnet builds the web fixture-first
-then wires the live query; **Mason writes the Convex functions himself (he's using
-this project to learn Convex) and a session writes their test coverage** — see the
-TDD rules in [AGENTS.md](AGENTS.md).
+Foundations first (players, nflState, season chains), then matchups → rosters →
+transactions → drafts → superlatives, then the fantasy-tds parity buildouts, then
+the new features. Per-slice pattern: migration → pure logic → ingestion → route +
+response model → regenerate clients → web/iOS view.
 
 ## Session log
 
-- **2026-06-27** — Scaffolded Python backend + `web/` frontend; built standings
-  frontend test-first; stood up `dev → test → main` pipeline; gate validated end-to-end.
-- **2026-07-06** — Pivoted backend to Convex. Python scaffold superseded. Plan rewritten
-  (README, AGENTS, slices, pipeline). Full `convex/` backend scaffold written (schema,
-  auth, http, crons, lib, queries, mutations, actions). Web updated: convex-svelte wired,
-  auth store + OAuth callback route scaffolded, CI fixed. Auth: Google OAuth via
-  `@convex-dev/auth`; web uses custom redirect flow (no official Svelte adapter).
-  Blocked on `npx convex dev` first run to generate types.
-- **2026-07-07** — Plan audit. Fixed doc inaccuracies: CI `verify` does **not** run
-  Convex function tests (pipeline.md/README corrected); `useQuery` goes in
-  `+page.svelte`, not `load()` (2e corrected). Flagged latent ingest bugs (Sleeper
-  `null` vs `v.optional`, missing `fpts_decimal` → NaN, avatar ID vs URL, `daily`
-  fan-out) as pre-2d fixes. Added [docs/ROADMAP.md](docs/ROADMAP.md): foundation
-  slices (players / nflState / season chains), fantasy-tds parity buildouts, and
-  a "beyond fantasy-tds" section of new features (luck analysis, playoff odds,
-  LLM recaps, draft companion, …). Decision: the Contentful blog migrates into
-  Convex, merged with the LLM recap feature (posts were already LLM-written last
-  season). Working-agreement update: Mason writes Convex functions himself (learning
-  Convex is the point); sessions write their test coverage (AGENTS.md). Queued
-  next-session audits (auth flow, CI codegen, matchups contract, type sharing) +
-  a design track (extract system from web/, design only novel surfaces). Still
-  blocked on `npx convex dev` first run (Phase 1, Mason).
-- **2026-07-27** — Scoped iOS feasibility against this repo rather than fantasy-tds.
-  Finding: Convex ships a first-party Swift client (ConvexMobile), so a native
-  client consumes the same queries/mutations — no REST layer, no bearer shim, no
-  CORS. But ConvexMobile supports Auth0 / Clerk / custom OIDC only, **not**
-  `@convex-dev/auth`, which made our auth choice the one thing foreclosing iOS.
-  Evaluated Clerk first and drafted the swap; then reconsidered against the
-  provider already in production and landed on **Firebase Auth** (same project as
-  fantasy-tds) wired as a custom OIDC provider — verified against the live
-  discovery document, with published precedent for the pairing. Decider was UID
-  continuity: fantasy-tds's `users` collection already holds twelve real
-  user↔Sleeper links and the admin flag, and shared UIDs let it import with no
-  remapping *and* let both apps run side by side during cutover. Also removes a
-  vendor rather than adding one, and drops `firebase-admin` + session cookies
-  relative to fantasy-tds. Changes: `convex/auth.ts` + the OAuth callback route
-  deleted, `auth.config.ts` validates Firebase ID tokens, `authTables` replaced
-  by an app-owned `users` table keyed by `firebaseUid` and shaped to mirror
-  fantasy-tds's `UserProfile`, web moved to the `firebase/auth` SDK. Closes the
-  token-refresh gap and the auth-flow audit. Sign in with Apple deferred until
-  iOS is actually on the table. Setup moved to [docs/SETUP.md](docs/SETUP.md);
-  rationale in [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
-  Still blocked on `npx convex dev` first run.
+- **2026-06-27** — Scaffolded Python/FastAPI backend + `web/` frontend; built the
+  standings frontend test-first; stood up `dev → test → main`; gate validated.
+- **2026-07-06** — Pivoted backend to Convex as a Convex-learning vehicle. Python
+  scaffold marked superseded. Full `convex/` scaffold written; web wired to
+  `convex-svelte`. Blocked on `npx convex dev` first run.
+- **2026-07-07** — Plan audit; fixed doc inaccuracies; flagged latent ingest bugs;
+  added `docs/ROADMAP.md` with parity buildouts and a beyond-parity section.
+- **2026-07-27** — Scoped iOS feasibility, which cascaded into two decisions.
+  **(1)** Replaced `@convex-dev/auth` with **Firebase Auth** — the provider
+  already in production — wired as a custom OIDC provider. Decider was UID
+  continuity: fantasy-tds's `users` collection holds twelve real user↔Sleeper
+  links, and shared UIDs let them import unchanged while both apps run side by
+  side. ([ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md),
+  commit `0902282`.) **(2)** Then **iOS became the primary goal**, which demoted
+  Convex from "the point" to "a means" — and it does not survive that. Research
+  found `convex-swift` at 0.8.1, five months stale, 47 stars, no offline reads,
+  no optimistic updates, and an open data race on the auth path; and Convex emits
+  no OpenAPI spec, so it cannot satisfy the one-contract-two-clients requirement
+  without hand-rolling it. Reverted to the **FastAPI + Pydantic + Postgres**
+  scaffold that was already here: Python is Mason's working language, FastAPI
+  generates the OpenAPI spec for free, and the analytical roadmap suits SQL.
+  Neon over Supabase on seasonal idle behavior (auto-resume vs. 7-day pause and
+  manual restore); Cloud Run because `psycopg-pool` needs a long-lived process;
+  Svelte SPA over SvelteKit because a serverless client makes drift structurally
+  impossible. ([ADR 0002](docs/decisions/0002-ios-first-openapi-python-api.md).)
+  Still blocked on Phase 1 — nothing in this repo has ever been run.

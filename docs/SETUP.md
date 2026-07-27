@@ -1,203 +1,192 @@
 # Setup — first run, in order
 
-One-time setup to get from a fresh clone to a signed-in local app. **Do these in
-order** — each step produces a value the next one needs.
+From a fresh clone to a running API with real data. **Do these in order** — each
+step produces something the next one needs.
 
-Supersedes "Phase 1" in [HANDOFF.md](../HANDOFF.md). Auth changed in
-[ADR 0001](decisions/0001-auth-provider-and-native-clients.md): identity comes
-from **the same Firebase project fantasy-tds uses**, wired to Convex as an OIDC
-provider. There is no new account to create and nothing secret on the Convex
-side — no signing keys, no OAuth client secret, no service-account JSON.
+Nothing in this repo has ever been executed. Treat the scaffold as a starting
+point, not a verified base: expect to fix things in steps 3–4.
 
-**Time:** ~15 minutes.
+Stack rationale: [ADR 0002](decisions/0002-ios-first-openapi-python-api.md).
+Auth: [ADR 0001](decisions/0001-auth-provider-and-native-clients.md).
 
 ## What you're setting up, and why
 
-| # | Thing | Why it exists | You'll end up with |
+| # | Thing | Why | Needed before |
 |---|---|---|---|
-| 1 | Node + deps | — | `node_modules/` |
-| 2 | Convex deployment | The whole backend: DB, functions, crons | `convex.json`, `convex/_generated/`, deployment URL |
-| 3 | Firebase project ID → Convex | Tells Convex which token issuer to trust | `FIREBASE_PROJECT_ID` set |
-| 4 | Web env file | Points the browser at Convex and Firebase | `web/.env.local` |
-| 5 | Run + verify | — | Signed in, Convex accepting the token |
-| 6 | Real league data | — | Rows in the dashboard |
+| 1 | Python env + deps | — | everything |
+| 2 | Local Postgres (Docker) | Dev database; no cloud account needed | 3 |
+| 3 | Migrations | Creates the schema | 4 |
+| 4 | Run the API | Confirms the scaffold works; `/docs` is the live OpenAPI UI | 5 |
+| 5 | Firebase project ID | Verifies ID tokens from both clients | auth-gated routes |
+| 6 | Neon project | Hosted Postgres for `dev` / `test` / `main` | deploying |
+| 7 | Cloud Run | Hosts the API | deploying |
 
-Step 1 → 2 is a hard order (nothing in `convex/` compiles until
-`convex/_generated/` exists). Steps 3 and 4 both need values you already have
-from fantasy-tds, so they're quick.
+**Steps 1–4 are enough to start building.** Steps 5–7 are deferrable until
+there's an auth-gated route or something worth deploying.
 
 ---
 
-## 1 — Prerequisites and install
+## 1 — Python environment
 
-Node v20+. From the repo root:
-
-```sh
-npm install            # convex CLI + function deps
-cd web && npm install  # SvelteKit frontend + firebase
-cd ..
-```
-
-> More: [README.md](../README.md) for architecture, [AGENTS.md](../AGENTS.md)
-> for the working model and TDD rules.
-
-## 2 — Link a Convex deployment
+Python 3.12+.
 
 ```sh
-npx convex login   # first time only
-npx convex dev     # interactive: pick or create a deployment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-This creates `convex.json`, generates `convex/_generated/`, and pushes the schema
-and functions. **Leave it running** — it watches `convex/` and pushes on save.
+> `pyproject.toml` sets `package = false` — this is an application, not a
+> library. Everything runs with `PYTHONPATH=src`.
 
-It prints two URLs:
+## 2 — Local Postgres
 
-- **`https://<name>.convex.cloud`** — the client/WebSocket URL → step 4
-- **`https://<name>.convex.site`** — the HTTP URL, for future webhooks. Not needed for auth.
+```sh
+docker compose up -d
+docker compose ps        # expect "healthy"
+```
 
-> Until this runs, every file in `convex/` has unresolved imports from
-> `convex/_generated/` and typechecking fails. Expected, not a bug.
+Bound to `127.0.0.1:5432`, so it is not reachable from the network. Credentials
+are `fantasy` / `fantasy` / `fantasy` — fine locally, never used anywhere else.
+
+```sh
+export DATABASE_URL="postgresql://fantasy:fantasy@127.0.0.1:5432/fantasy"
+```
+
+Better: copy `.env.example` to `.env` and fill it in, so you aren't re-exporting
+per shell.
+
+## 3 — Apply migrations
+
+```sh
+PYTHONPATH=src python -m core.db.migrate
+```
+
+Applies `migrations/*.sql` in filename order.
+
+> `0001_init.sql` was written before the Convex detour and has never run. If it
+> errors, fix it — do not work around it. Read `ROLES.sql` too; it may assume a
+> role setup that Neon provisions differently than local Postgres.
+
+Verify:
+
+```sh
+docker compose exec db psql -U fantasy -d fantasy -c '\dt'
+```
+
+## 4 — Run the API
+
+```sh
+PYTHONPATH=src uvicorn api.main:app --reload
+```
+
+- http://localhost:8000/health → expect `{"status": "ok"}` or similar
+- **http://localhost:8000/docs** → the interactive OpenAPI UI
+
+That `/docs` page is worth pausing on: it is generated from your Pydantic models,
+and it is the same spec that will generate the TypeScript and Swift clients. If
+an endpoint looks wrong there, it is wrong everywhere.
+
+The raw spec is at http://localhost:8000/openapi.json.
+
+## 5 — Firebase (for auth-gated routes)
+
+Use the **same project as fantasy-tds** — shared UIDs are the point (ADR 0001).
+The project ID is in `fantasy-tds/.env` as `PUBLIC_FIREBASE_PROJECT_ID`.
+
+```sh
+# in .env
+FIREBASE_PROJECT_ID=<project-id>
+```
+
+`firebase-admin` verifies ID tokens against Google's public keys. **Application
+Default Credentials are only needed if you also read Firestore** — for pure token
+verification the project ID is enough.
+
+Both clients send `Authorization: Bearer <firebase-id-token>`. No session
+cookies, so the web and iOS auth paths are identical.
+
+> More: [Firebase Admin SDK](https://firebase.google.com/docs/admin/setup) ·
+> [Firebase Auth web](https://firebase.google.com/docs/auth/web/start) ·
+> [Firebase Auth iOS](https://firebase.google.com/docs/auth/ios/start)
+
+## 6 — Neon (hosted Postgres)
+
+Create a project at [neon.com](https://neon.com). Free tier: 0.5 GB and 100
+CU-hours per project — orders of magnitude more than one league needs.
+
+**Create a branch per environment** (`dev`, `test`, `main`) — each is a
+copy-on-write fork, so migrations can be rehearsed against real-shaped data
+before promotion. Ten branches on the free tier.
+
+Copy the **pooled** connection string (Neon's PgBouncer endpoint) into
+`DATABASE_URL` for the deployed API.
+
+> **Expect a cold start.** Free-tier computes suspend after 5 minutes idle and
+> auto-resume on the next connection — no manual restore, but the first request
+> after idle is slow. That behavior is why Neon was chosen over Supabase, whose
+> free tier pauses after 7 days and requires a manual restore — bad for an app
+> that goes quiet February to July.
 >
-> More: [Convex Svelte quickstart](https://docs.convex.dev/quickstart/svelte) ·
-> [dashboard](https://dashboard.convex.dev)
+> More: [Neon scale to zero](https://neon.com/docs/introduction/scale-to-zero) ·
+> [branching](https://neon.com/docs/introduction/branching)
 
-## 3 — Point Convex at the Firebase project
+## 7 — Cloud Run (hosting the API)
 
-Use the **same project as fantasy-tds** — shared UIDs are the whole point
-(ADR 0001). The project ID is in `fantasy-tds/.env` as
-`PUBLIC_FIREBASE_PROJECT_ID`, or in the Firebase console under
-**Project settings → Project ID**.
+The API needs a **container**, not serverless functions: `psycopg-pool` keeps
+long-lived connections, which per-invocation runtimes cannot hold.
 
-```sh
-npx convex env set FIREBASE_PROJECT_ID <project-id>
-```
-
-`convex/auth.config.ts` builds both halves of the OIDC config from it:
-
-| | |
-|---|---|
-| `domain` | `https://securetoken.google.com/<project-id>` — matches the token's `iss` |
-| `applicationID` | `<project-id>` — matches the token's `aud` |
-
-Restart `npx convex dev` after setting it so the config re-pushes.
-
-**No Firebase console changes are needed.** Google sign-in is already enabled on
-that project, and `localhost` is an authorized domain by default. If you later
-serve the web app from a new domain, add it under
-**Firebase console → Authentication → Settings → Authorized domains**.
-
-> Background: [Convex custom OIDC provider](https://docs.convex.dev/auth/advanced/custom-auth)
-
-## 4 — Web env file
+Needs a `Dockerfile` (not yet written — see HANDOFF). Roughly:
 
 ```sh
-cp web/.env.example web/.env.local
+gcloud run deploy fantasy-api --source . --region us-central1 \
+  --set-env-vars FIREBASE_PROJECT_ID=<id> \
+  --set-secrets DATABASE_URL=projects/<proj>/secrets/database-url:latest
 ```
 
-| Var | From |
-|---|---|
-| `PUBLIC_CONVEX_URL` | step 2, the `.convex.cloud` URL |
-| `PUBLIC_FIREBASE_*` (six) | copy verbatim from `fantasy-tds/.env` |
+Scales to zero, so idle cost is nothing — and combined with Neon's suspend, the
+first request after a quiet period pays both cold starts (~1–2s + a few hundred
+ms). Fine for twelve users.
 
-All six Firebase values are public by design — they identify the project, they
-don't authorize anything. Access is controlled by Firebase Auth and by
-function-level checks in Convex.
+**Simpler alternative:** Railway. The existing `Procfile` already targets it, and
+ingestion is already modelled as a separate cron service there. If deployment
+friction is costing more than it's teaching, take Railway.
 
-## 5 — Run it and verify auth end-to-end
-
-```sh
-cd web && npm run dev    # http://localhost:5173
-```
-
-Verify in order — each failure points somewhere specific:
-
-1. **Page loads, "Sign in with Google" visible.** A console warning about
-   `PUBLIC_FIREBASE_*` being unset means step 4 didn't take — restart Vite, env
-   changes aren't hot-reloaded.
-2. **Click it → Google popup → back, signed in as your email.** Popup blocked or
-   `auth/unauthorized-domain` means the serving origin isn't in Firebase's
-   authorized domains.
-3. **Convex accepts the token.** Convex dashboard → Logs: a query from a
-   signed-in browser should show an authenticated identity. Failures here mean
-   step 3's project ID doesn't match the one minting tokens in step 4.
-4. **`ctx.auth.getUserIdentity()` returns non-null** inside a function. Its
-   `subject` is the Firebase UID the `users` table is keyed by — and the same UID
-   fantasy-tds already stores.
-
-> If step 3 fails while 1–2 pass, see the JWKS-resolution follow-up in
-> [ADR 0001](decisions/0001-auth-provider-and-native-clients.md). Firebase
-> advertises its JWKS via the discovery document rather than at
-> `${iss}/.well-known/jwks.json`; this is the one unverified assumption in the
-> setup.
-
-## 6 — Load real data
-
-Once a real Sleeper league ID is on hand:
-
-```sh
-npx convex run actions/ingest:backfill '{"leagueId":"<real_id>"}'
-```
-
-> **Fix the known ingest bugs first** — Sleeper returns explicit `null` for
-> `previous_league_id` / `avatar` / `metadata.team_name`, which `v.optional()`
-> rejects, and missing `fpts_decimal` yields `NaN`. `backfill` throws on the
-> first real league otherwise. Details and test cases:
-> [docs/slices/standings.md](slices/standings.md), tracked in
-> [HANDOFF.md](../HANDOFF.md) known gaps.
-
-Then confirm `getStandings` returns sorted rows in the dashboard and swap the
-standings page off its fixture (HANDOFF step 2e).
-
-### Importing existing users (later, not now)
-
-The `users` table is shaped to mirror fantasy-tds's `UserProfile`, so the
-existing Firestore `users` collection imports by UID with no remapping —
-preserving everyone's Sleeper link and the admin flag. Write that one-off import
-when the Sleeper-linking slice lands; there's nothing reading the table before
-then.
+> More: [Cloud Run](https://cloud.google.com/run/docs/deploying-source-code) ·
+> [Railway](https://docs.railway.app/)
 
 ---
+
+## Ingestion
+
+```sh
+PYTHONPATH=src python -m ingestion backfill --league-id <real_id>
+PYTHONPATH=src python -m ingestion daily
+```
+
+Deployed, `daily` runs as a scheduled job — Cloud Scheduler hitting a job, or a
+Railway cron service. Off-season a daily run is plenty; in-season add a Tuesday
+run once matchups settle Monday night.
 
 ## Where to read more
 
 | Topic | File |
 |---|---|
-| Architecture, directory layout, key patterns | [README.md](../README.md) |
-| Working model, model tiers, TDD rules | [AGENTS.md](../AGENTS.md) |
-| Current state, known gaps, next tasks | [HANDOFF.md](../HANDOFF.md) |
-| Slice sequence to parity and beyond | [docs/ROADMAP.md](ROADMAP.md) |
-| Why Firebase Auth, and the iOS implications | [ADR 0001](decisions/0001-auth-provider-and-native-clients.md) |
-| Branch model and review gates | [docs/pipeline.md](pipeline.md) |
-| Per-slice data contracts | [docs/slices/](slices/) |
-
-## Deploying
-
-```sh
-npx convex deploy        # backend → Convex production
-```
-
-Production needs the project ID set on the prod deployment, and the web env set
-wherever the frontend is hosted:
-
-```sh
-npx convex env set --prod FIREBASE_PROJECT_ID <project-id>
-```
-
-Vercel env: `PUBLIC_CONVEX_URL` (prod deployment) + the six `PUBLIC_FIREBASE_*`.
-
-Unlike a Clerk-style setup there is no separate dev/prod identity instance —
-both Convex deployments validate against the same Firebase project, which is
-what lets fantasy-tds and fantasy-platform share logins during cutover. The
-trade-off is that dev and prod share a user pool; keep that in mind before
-destructive user writes.
+| Architecture and key patterns | [README.md](../README.md) |
+| Working model, TDD rules, commands | [AGENTS.md](../AGENTS.md) |
+| Current state, next steps, known gaps | [HANDOFF.md](../HANDOFF.md) |
+| Slice sequence to parity and beyond | [ROADMAP.md](ROADMAP.md) |
+| Why this stack | [ADR 0002](decisions/0002-ios-first-openapi-python-api.md) |
+| Why Firebase Auth | [ADR 0001](decisions/0001-auth-provider-and-native-clients.md) |
+| Branch model and review gates | [pipeline.md](pipeline.md) |
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
-| `Cannot find module './_generated/api'` | Step 2 hasn't run, or `convex dev` isn't running |
-| `auth/unauthorized-domain` on sign-in | Serving origin missing from Firebase authorized domains |
-| Signed in on the web, but Convex logs show unauthenticated queries | `FIREBASE_PROJECT_ID` (step 3) ≠ `PUBLIC_FIREBASE_PROJECT_ID` (step 4), or the JWKS follow-up in ADR 0001 |
-| Env change ignored | Vite doesn't hot-reload `.env.local`; restart `npm run dev`. Convex env changes need `convex dev` restarted |
-| Convex function tests fail in CI | Expected — CI runs web tests only. Known gap in [HANDOFF.md](../HANDOFF.md) |
+| `ModuleNotFoundError: api` / `core` | Missing `PYTHONPATH=src` |
+| `connection refused` on 5432 | `docker compose up -d` not run, or container unhealthy |
+| Migration errors on first run | Expected — `0001_init.sql` has never executed. Fix it, don't skip it |
+| `/docs` empty or missing routes | Router not registered in `api/main.py` |
+| 401 on every request | `FIREBASE_PROJECT_ID` unset, or the client is sending a token from a different project |
+| First request after idle takes seconds | Neon + Cloud Run cold starts. Expected on free tiers |

@@ -13,5 +13,5 @@ feature/* ──PR──▶ dev ──PR──▶ test ──PR──▶ main (p
 
 - **Advisory review** (`claude-code-review.yml`) — fresh-context comments on PRs into `dev`; never blocks.
 - **Promotion gate** (`promotion-review.yml`) — fresh-context review on PRs into `test`/`main`; **fails the check on any high/critical finding**, so branch protection blocks the merge. Fails closed (no verdict + model error = fail).
-- **`verify`** (`verify.yml`) — `cd web && npx vitest run` (web component tests) + `cd web && npx svelte-check` (type-check). Convex function tests (`npx vitest run` from repo root, `convex-test`) are **not in CI yet** — known gap in [HANDOFF.md](../HANDOFF.md); add a root vitest job once `convex.json` is committed and codegen runs in CI.
+- **`verify`** (`verify.yml`) — currently `cd web && npx vitest run` + `cd web && npx svelte-check` only. **Needs rewriting for the Python API** (ADR 0002): `pytest` + `ruff check src tests`, plus the **OpenAPI drift gate** — regenerate the TypeScript and Swift clients and fail on any diff, so a contract change can never land without its clients. Known gap in [HANDOFF.md](../HANDOFF.md).
 - **Branch protection** on `test` + `main` requires `promotion-review` + `verify`, with `enforce_admins` (no override).

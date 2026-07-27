@@ -1,5 +1,19 @@
 # Slice: Standings
 
+> **⚠️ STALE — Convex-shaped.** This contract was written for the Convex
+> backend, removed in [ADR 0002](../decisions/0002-ios-first-openapi-python-api.md).
+> **Rewrite it before restarting the slice** (HANDOFF phase 2a).
+>
+> What is still correct and worth keeping: the `StandingRow` field set, the
+> ranking rules (wins desc, ties by fpts desc), the avatar-ID-to-URL note, and
+> the Sleeper `null`-vs-absent edge cases — those are facts about the data, not
+> about Convex.
+>
+> What must change: schema → `migrations/*.sql`; pure logic → `src/core/standings.py`;
+> mutations/actions → `src/ingestion/`; query → a FastAPI route with a Pydantic
+> response model; `convex-test` → pytest + `TestClient`.
+
+
 First vertical slice. Exercises the whole stack: ingestion → Convex DB → query
 function → web. Built test-first on both sides (see [AGENTS.md](../../AGENTS.md)).
 

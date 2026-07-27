@@ -1,218 +1,141 @@
 # Fantasy Platform
 
-A fantasy-football companion app rebuilt from the ground up on a **Convex** backend:
-real-time document database + typed server functions + native scheduled ingestion,
-all in TypeScript. The **SvelteKit** frontend in `web/` talks to Convex directly
-via `convex-svelte` — no intermediate HTTP server.
+A fantasy-football companion app built **API-first**: one Python service defines
+the contract, and both clients — a Svelte web app and a SwiftUI iOS app — are
+generated from it, so logic lives in one place and cannot drift between them.
+
+Rebuilt from [fantasy-tds](https://github.com/rmasons/fantasy-tds), which remains
+the running production app and the parity checklist.
 
 ## Architecture
 
 ```
-Browser ──▶ [ SvelteKit web ]
-               convex-svelte
-                     │
-                     ▼
-             [ Convex backend ]
-          ┌─────────────────────────┐
-          │  queries / mutations    │ ◀──▶ Convex DB (document store)
-          │  actions                │ ──▶  Sleeper API
-          │  crons (daily refresh) │
-          └─────────────────────────┘
+Sleeper API
+     │  ingestion (Python, scheduled)
+     ▼
+[ Neon Postgres ] ◀──▶ [ FastAPI on Cloud Run ] ──▶ OpenAPI spec
+                              │                        │
+                    Firebase Auth (ID tokens)          ├─▶ generated TS client ──▶ Svelte SPA
+                    verified via firebase-admin        └─▶ generated Swift client ─▶ SwiftUI app
 ```
 
-All data access goes through typed Convex functions — there is no exposed database
-endpoint. Google OAuth is handled by `@convex-dev/auth`; every authenticated function
-receives a typed `ctx.auth` with the caller's identity.
+**The OpenAPI spec is the seam.** FastAPI derives it automatically from the
+Pydantic models that already validate requests and serialize responses — one
+definition serving validation, serialization, and both generated clients. Rename
+a field and the iOS build fails in CI, not on someone's phone.
 
-- **`convex/`** — all backend logic: schema, queries, mutations, actions, crons,
-  auth config, and shared library code.
-- **`web/`** — SvelteKit frontend; uses `convex-svelte` for reactive queries and
-  mutations.
+Why this shape, and what it replaced: **[ADR 0002](docs/decisions/0002-ios-first-openapi-python-api.md)**.
+Why Firebase Auth: **[ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md)**.
+
+- **`src/`** — the API and ingestion. `api/` (FastAPI routes + deps),
+  `core/` (config, Postgres pool, Sleeper client, Pydantic schemas),
+  `ingestion/` (backfill + daily).
+- **`migrations/`** — plain SQL, applied in order.
+- **`web/`** — Svelte 5 + Vite SPA. A static client; it has no server and
+  therefore no data path except the API.
+- **`ios/`** — SwiftUI app *(not started)*.
 
 ## Prerequisites
 
-- **Node.js** v20+
-- A Convex account — sign up at convex.dev, then `npx convex login`
+- **Python** 3.12+
+- **Node** 20+ (web client only)
+- **Docker** (local Postgres via `docker-compose.yml`)
+- A [Neon](https://neon.com) project, and the fantasy-tds Firebase project
 
 ## Local quickstart
 
+Full ordered setup — including Neon, Firebase, and the deploy targets — is in
+**[docs/SETUP.md](docs/SETUP.md)**. The short version:
+
 ```bash
-# 1. Install dependencies
-npm install            # root (convex CLI + dev deps)
-cd web && npm install  # web frontend
+# 1. Python env + deps
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
 
-# 2. Start the Convex dev backend + function watcher (from root)
-npx convex dev
-#   → creates/links a dev deployment, pushes schema + all functions
-#   → prints your PUBLIC_CONVEX_URL; paste it into web/.env.local
-#   → dashboard: dashboard.convex.dev
+# 2. Local Postgres + schema
+docker compose up -d
+PYTHONPATH=src python -m core.db.migrate
 
-# 3. Start the web dev server (separate terminal)
-cd web && npm run dev
-#   → http://localhost:5173
+# 3. API (http://localhost:8000, docs at /docs)
+PYTHONPATH=src uvicorn api.main:app --reload
+
+# 4. Web client (separate terminal)
+cd web && npm install && npm run dev
 ```
 
-Run tests:
+## Tests
 
 ```bash
-# Web component tests
-cd web && npx vitest run
-
-# Convex function tests (convex-test, edge-runtime) — run from the repo root
-npx vitest run
-
-# Type-check + lint
-cd web && npx svelte-check && npx eslint src/
+pytest                      # API + ingestion + pure logic
+ruff check src tests        # lint
+cd web && npx vitest run    # web component tests
 ```
 
 ## Configuration
 
-### Web (`web/.env.local`)
+Backend (`.env`, never committed — see [.env.example](.env.example)):
 
 | Var | Purpose |
 |---|---|
-| `PUBLIC_CONVEX_URL` | Convex deployment URL — printed by `npx convex dev` |
+| `DATABASE_URL` | Postgres connection string (local Docker or Neon) |
+| `FIREBASE_PROJECT_ID` | Validates Firebase ID tokens; same project as fantasy-tds |
 
-### Convex backend secrets (set via CLI or dashboard — never committed to source)
-
-```bash
-# Generate JWT keys:
-npx @convex-dev/auth generate-keys
-npx convex env set JWT_PRIVATE_KEY "<output>"
-npx convex env set JWKS "<output>"
-
-# Set your site URL (the .convex.site URL printed by npx convex dev):
-npx convex env set SITE_URL https://your-deployment.convex.site
-
-# Google OAuth app credentials (console.cloud.google.com):
-npx convex env set AUTH_GOOGLE_ID <client-id>
-npx convex env set AUTH_GOOGLE_SECRET <client-secret>
-```
+Web (`web/.env.local`):
 
 | Var | Purpose |
 |---|---|
-| `SITE_URL` | Your Convex site URL — used as the OAuth redirect base |
-| `JWT_PRIVATE_KEY` | Signs Convex Auth JWTs |
-| `JWKS` | Public key set for JWT verification |
-| `AUTH_GOOGLE_ID` | Google OAuth client ID |
-| `AUTH_GOOGLE_SECRET` | Google OAuth client secret |
-
-## Deploying
-
-```bash
-# Deploy backend to Convex production
-npx convex deploy
-
-# Deploy web frontend to Vercel (or anywhere)
-# Set PUBLIC_CONVEX_URL to the production deployment URL
-```
-
-## Directory layout
-
-```
-convex/
-  schema.ts            ← table definitions (no SQL migrations — pushed automatically)
-  auth.config.ts       ← Convex Auth domain config
-  crons.ts             ← daily ingestion schedule
-  lib/
-    standings.ts       ← pure computeStandings() — no DB dep, fully unit-testable
-    sleeper.ts         ← Sleeper API HTTP client
-  queries/
-    leagues.ts         ← reactive queries (standings, live score, …)
-  mutations/
-    ingestion.ts       ← upsert functions for leagues / users / rosters
-  actions/
-    ingest.ts          ← Sleeper fetch → mutations (backfill + daily)
-web/
-  src/                 ← SvelteKit pages + components (Svelte 5 + Tailwind v4)
-```
-
-> **Note:** `src/` (Python FastAPI scaffold) and `migrations/` are superseded.
-> They remain as reference for the data model and field mapping; all new work
-> goes in `convex/`.
+| `PUBLIC_API_BASE_URL` | Base URL of the API |
+| `PUBLIC_FIREBASE_*` | Firebase web config (six values, copied from fantasy-tds) |
 
 ## Key patterns
 
-### Schema (replaces SQL migrations)
+### Pydantic models are the contract
 
-```typescript
-// convex/schema.ts
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
-
-export default defineSchema({
-  leagues: defineTable({
-    leagueId: v.string(),
-    season: v.string(),
-    name: v.string(),
-    status: v.string(),
-    previousLeagueId: v.optional(v.string()),
-    settings: v.any(),
-  }).index("by_league_id", ["leagueId"]),
-
-  leagueUsers: defineTable({
-    leagueId: v.string(),
-    userId: v.string(),
-    displayName: v.string(),
-    teamName: v.optional(v.string()),
-    avatar: v.optional(v.string()),
-  }).index("by_league", ["leagueId"]),
-
-  rosters: defineTable({
-    leagueId: v.string(),
-    rosterId: v.number(),
-    ownerId: v.string(),
-    wins: v.number(),
-    losses: v.number(),
-    ties: v.number(),
-    fpts: v.number(),
-    fptsAgainst: v.number(),
-  }).index("by_league", ["leagueId"]),
-});
+```python
+class StandingRow(BaseModel):
+    roster_id: int
+    display_name: str
+    wins: int
+    losses: int
+    ties: int
+    fpts: float
+    avatar: str | None = None
 ```
 
-### Auth (`convex/auth.ts`)
+One definition validates, serializes, documents, and generates both clients.
+Change it and every consumer is regenerated from the same source.
 
-```typescript
-import { convexAuth } from "@convex-dev/auth/server";
-import Google from "@auth/core/providers/google";
+### Pure logic stays free of I/O
 
-export const { auth, signIn, signOut, store } = convexAuth({
-  providers: [Google],
-});
+`core/` computation takes rows and returns rows — no database handle, no HTTP
+client. That is what makes it unit-testable without a database, and what would
+let it feed a precomputed-snapshot cache later without rework.
+
+### Auth is a dependency, not middleware
+
+```python
+async def current_user(token: str = Depends(bearer)) -> User:
+    claims = firebase_admin.auth.verify_id_token(token)
+    ...
 ```
 
-Sign-in from the web: redirect to `${PUBLIC_CONVEX_SITE_URL}/api/auth/signin/google?redirectTo=/auth/callback`.
-The callback at `/auth/callback` exchanges the `code`+`verifier` params for a JWT.
+Both clients send `Authorization: Bearer <firebase-id-token>`. There is no
+session cookie and no server-side session state, so the web and iOS auth paths
+are identical.
 
-### Crons (`convex/crons.ts`)
+### Migrations are explicit
 
-```typescript
-import { cronJobs } from "convex/server";
-import { internal } from "./_generated/api";
+Plain SQL in `migrations/`, applied in order by `core/db/migrate.py`. Neon's
+branching gives each of `dev` / `test` / `main` its own copy-on-write database,
+so migrations can be rehearsed against real-shaped data.
 
-const crons = cronJobs();
+## Branching & deployment
 
-crons.daily(
-  "refresh rosters",
-  { hourUTC: 5, minuteUTC: 0 },
-  internal.actions.ingest.daily,
-);
+`dev → test → main`, with a blocking fresh-context review on each promotion.
+See **[docs/pipeline.md](docs/pipeline.md)**.
 
-export default crons;
-```
+## Working agreement
 
-### Frontend query (`web/src/routes/+page.svelte`)
-
-```svelte
-<script lang="ts">
-  import { useQuery } from "convex-svelte";
-  import { api } from "../../convex/_generated/api";
-
-  const standings = useQuery(api.queries.leagues.getStandings, { leagueId: "12345" });
-</script>
-
-{#if $standings}
-  <!-- render standings -->
-{/if}
-```
+Who writes what, the TDD loop, and the rules for delegating to agents:
+**[AGENTS.md](AGENTS.md)**. Current state and next steps:
+**[HANDOFF.md](HANDOFF.md)**.
