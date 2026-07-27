@@ -15,7 +15,8 @@
 	},
 	"dependencies": {
 		"convex": "^1.42.1",
-		"convex-svelte": "^0.14.0"
+		"convex-svelte": "^0.14.0",
+		"firebase": "^12.14.0"
 	},
 	"devDependencies": {
 		"@types/node": "^22.0.0",

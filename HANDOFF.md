@@ -6,7 +6,7 @@
 > resuming work. A stale handoff means lost context. Treat updating it as part of
 > finishing a task, not an afterthought.
 
-_Last updated: 2026-07-07_
+_Last updated: 2026-07-27_
 
 ## What this is
 
@@ -17,10 +17,14 @@ _Last updated: 2026-07-07_
   is the sole backend. No separate HTTP server, no managed Postgres.
 - **SvelteKit** frontend in `web/` consuming Convex directly via `convex-svelte`
   (reactive, real-time queries — no REST polling).
-- **Convex Auth** with Google OAuth — `@convex-dev/auth` on the backend;
-  manual OAuth redirect + JWT storage on the SvelteKit frontend (no official Svelte
-  adapter exists yet; custom flow wired in `web/src/lib/auth.svelte.ts` +
-  `web/src/routes/auth/callback/`).
+- **Firebase Auth** (Google sign-in) for identity — **the same Firebase project
+  fantasy-tds uses**, wired to Convex as a standard OIDC provider via
+  `convex/auth.config.ts`. Convex validates ID tokens against Google's public
+  JWKS: no `firebase-admin`, no service-account key, no session cookie. Shared
+  UIDs mean the existing user↔Sleeper links import as-is and both apps can run
+  side by side during cutover. **Replaced `@convex-dev/auth` on 2026-07-27** —
+  rationale, alternatives (incl. Clerk, rejected), and the iOS consequence in
+  [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
 
 *The Python FastAPI scaffold (`src/`, `migrations/`) is superseded. It remains in the
 repo as a data-model reference; all new work goes in `convex/`.*
@@ -37,76 +41,43 @@ Working model + TDD loop: see [AGENTS.md](AGENTS.md). Architecture details in [R
   `promotion-review` + `verify` on `test`/`main`; branch protection (`enforce_admins`)
   ON; `CLAUDE_CODE_OAUTH_TOKEN` set. Validated end-to-end.
 - **Convex backend scaffold:** all files written to `convex/` —
-  `schema.ts` (authTables + leagues/leagueUsers/rosters),
-  `auth.ts` (Google OAuth via `@convex-dev/auth`),
-  `auth.config.ts`, `http.ts`, `crons.ts`,
+  `schema.ts` (users + leagues/leagueUsers/rosters),
+  `auth.config.ts` (validates Firebase ID tokens via OIDC), `http.ts`, `crons.ts`,
   `lib/standings.ts` (pure `computeStandings` — unit-testable without Convex),
   `lib/sleeper.ts` (fetch wrapper for Sleeper API),
   `queries/leagues.ts` (`getStandings` + `activeLeagueIds`),
   `mutations/ingestion.ts` (idempotent upserts),
   `actions/ingest.ts` (`backfill` + `daily`).
-- **Web Convex wiring:** `convex` + `convex-svelte` added to `web/package.json`;
-  `setupConvex` + `setupAuth` in layout; auth store + OAuth callback route scaffolded.
+- **Web Convex wiring:** `convex` + `convex-svelte` + `firebase` in
+  `web/package.json`; `setupConvex` + `setupAuth` in layout; Firebase-backed auth
+  store; sign-in/out button on the index page (closes old step 2f).
 - **CI fixed:** `verify.yml` now runs web vitest + svelte-check only (Python steps removed).
-- **Root package.json:** `convex`, `@convex-dev/auth`, `@auth/core` as deps;
-  `convex-test`, `vitest`, `typescript` as devDeps for Convex function tests.
-- **Env documented:** `.env.example` (Convex secrets); `web/.env.example`
-  (`PUBLIC_CONVEX_URL`, `PUBLIC_CONVEX_SITE_URL`).
+- **Root package.json:** `convex` as the only dep (`@convex-dev/auth` and
+  `@auth/core` removed); `convex-test`, `vitest`, `typescript` as devDeps for
+  Convex function tests.
+- **Env documented:** `.env.example` (`FIREBASE_PROJECT_ID`); `web/.env.example`
+  (`PUBLIC_CONVEX_URL` + six `PUBLIC_FIREBASE_*`, copied from fantasy-tds).
+- **Auth swap (2026-07-27):** `@convex-dev/auth` → Firebase Auth. See
+  [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md) and the
+  ordered first-run guide in [docs/SETUP.md](docs/SETUP.md).
 
 ---
 
 ## Phase 1 — Enable (one-time, Mason does this)
 
-**All `convex/` code imports from `convex/_generated/` — nothing runs until the
-deployment is linked. Do these steps in order, once, before any dev work.**
+**Moved to [docs/SETUP.md](docs/SETUP.md)** — the ordered first-run guide, kept
+in one place so it doesn't drift from the code. It covers: install → link a
+Convex deployment → point Convex at the fantasy-tds Firebase project by setting
+`FIREBASE_PROJECT_ID` → fill `web/.env.local` → verify sign-in end-to-end →
+backfill a real league. Shorter than it was: the Firebase project already
+exists, so there is no identity provider to stand up.
 
-### Step 1 — Install and link Convex
+**Nothing in `convex/` compiles until step 2 runs** (`convex/_generated/` does
+not exist yet). That is still the blocker on all of Phase 2.
 
-```bash
-npm install                  # root: convex, @convex-dev/auth, @auth/core + devDeps
-npx convex dev               # interactive: log in, pick/create a deployment
-                             # creates convex.json, generates convex/_generated/
-                             # prints URLs — copy them for the next steps
-```
-
-Keep `convex dev` running; it watches `convex/` and pushes changes live.
-
-### Step 2 — Set Convex backend env vars
-
-```bash
-# Replace the placeholder with the .convex.site URL printed by convex dev:
-npx convex env set SITE_URL https://your-deployment.convex.site
-
-# Generate JWT keys (one command, prints two values):
-npx @convex-dev/auth generate-keys
-npx convex env set JWT_PRIVATE_KEY "<from above>"
-npx convex env set JWKS "<from above>"
-```
-
-### Step 3 — Google OAuth credentials
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → APIs & Services → Credentials → Create OAuth 2.0 Client ID (Web application).
-2. **Authorized redirect URI:** `https://your-deployment.convex.site/api/auth/callback/google`
-3. Copy the client ID and secret:
-
-```bash
-npx convex env set AUTH_GOOGLE_ID <client-id>
-npx convex env set AUTH_GOOGLE_SECRET <client-secret>
-```
-
-### Step 4 — Web env
-
-```bash
-cp web/.env.example web/.env.local
-# Edit web/.env.local — fill in PUBLIC_CONVEX_URL and PUBLIC_CONVEX_SITE_URL
-# (both URLs are printed by `npx convex dev`)
-cd web && npm install && npm run dev
-```
-
-### Step 5 — Verify auth end-to-end
-
-Open `http://localhost:5173`, click Sign in with Google, confirm you land back on the
-site and `localStorage` has `fantasy-platform:auth-token`.
+The old Phase 1 here described Convex Auth setup — JWT signing keys, `SITE_URL`,
+and a Google Cloud OAuth client. None of those exist any more; see
+[ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
 
 ---
 
@@ -155,10 +126,11 @@ Delete the `+page.ts` `load()` + `$lib/api.ts` REST path (`VITE_API_BASE_URL` is
 FastAPI-era leftover). Keep the existing `StandingsTable` component — no visual
 changes needed.
 
-### 2f — Sign-in button
+### 2f — Sign-in button ✅ done (2026-07-27)
 
-File: `web/src/routes/+page.svelte` (or a nav component)  
-Add a button that calls `authStore.signInUrl(PUBLIC_CONVEX_SITE_URL, window.location.origin)` and navigates to it. Show sign-out link when `authStore.isAuthenticated`.
+`web/src/routes/+page.svelte` calls `authStore.signIn()` (Firebase
+`signInWithPopup` + `GoogleAuthProvider`) and shows the signed-in email +
+sign-out when `authStore.isAuthenticated`. Untested until setup runs.
 
 ---
 
@@ -175,16 +147,21 @@ Add a button that calls `authStore.signInUrl(PUBLIC_CONVEX_SITE_URL, window.loca
 - **`daily` fan-out** — replace `ctx.runAction` + `Promise.all` with
   `ctx.scheduler.runAfter(0, …)` per league (one league's failure shouldn't abort
   the rest; action→action is discouraged).
-- **Token refresh** — `authStore.fetchAccessToken` returns the stored token as-is. Wire a refresh call once `@convex-dev/auth` documents the refresh endpoint for non-React clients.
+- ~~**Token refresh**~~ — closed by the Firebase swap; the SDK owns refresh and
+  `forceRefreshToken` maps directly onto `getIdToken(forceRefresh)`. Typechecked
+  green against `firebase` 12.x. **One assumption left to verify at wire-up:**
+  that Convex resolves Firebase's JWKS via the discovery document rather than
+  demanding `${iss}/.well-known/jwks.json`, which Firebase 404s (ADR 0001
+  follow-up).
 - **Sleeper league ID** — hardcoded `"12345"` in the web standings page; replace once Mason provides the real ID.
 - **Convex function tests in CI** — add a root `npx vitest run` job to `verify.yml` once `convex.json` is committed and a read-only deploy key is available for codegen in CI. (Until then CI covers web tests only — `verify` does **not** run Convex function tests.)
 
 ## Queued audits — good next-session tasks (no Convex deployment needed)
 
-- **Auth flow vs. current `@convex-dev/auth`** — `web/src/lib/auth.svelte.ts` +
-  the callback route are hand-rolled (no official Svelte adapter); verify against
-  the library's current docs before Phase 1 wiring, including how token refresh
-  is supposed to work for non-React clients (known gap above).
+- ~~**Auth flow vs. current `@convex-dev/auth`**~~ — resolved by replacing it
+  outright ([ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md)).
+  The hand-rolled callback route is deleted; Firebase's SDK owns the popup flow,
+  and it is substantially the code already running in fantasy-tds.
 - **CI codegen** — investigate whether `npx convex codegen` runs in CI without a
   linked deployment (newer CLI versions); if so, add a root `npx vitest run` +
   typecheck job to `verify.yml`. Closes the "Convex tests in CI" gap — today CI
@@ -263,3 +240,24 @@ TDD rules in [AGENTS.md](AGENTS.md).
   next-session audits (auth flow, CI codegen, matchups contract, type sharing) +
   a design track (extract system from web/, design only novel surfaces). Still
   blocked on `npx convex dev` first run (Phase 1, Mason).
+- **2026-07-27** — Scoped iOS feasibility against this repo rather than fantasy-tds.
+  Finding: Convex ships a first-party Swift client (ConvexMobile), so a native
+  client consumes the same queries/mutations — no REST layer, no bearer shim, no
+  CORS. But ConvexMobile supports Auth0 / Clerk / custom OIDC only, **not**
+  `@convex-dev/auth`, which made our auth choice the one thing foreclosing iOS.
+  Evaluated Clerk first and drafted the swap; then reconsidered against the
+  provider already in production and landed on **Firebase Auth** (same project as
+  fantasy-tds) wired as a custom OIDC provider — verified against the live
+  discovery document, with published precedent for the pairing. Decider was UID
+  continuity: fantasy-tds's `users` collection already holds twelve real
+  user↔Sleeper links and the admin flag, and shared UIDs let it import with no
+  remapping *and* let both apps run side by side during cutover. Also removes a
+  vendor rather than adding one, and drops `firebase-admin` + session cookies
+  relative to fantasy-tds. Changes: `convex/auth.ts` + the OAuth callback route
+  deleted, `auth.config.ts` validates Firebase ID tokens, `authTables` replaced
+  by an app-owned `users` table keyed by `firebaseUid` and shaped to mirror
+  fantasy-tds's `UserProfile`, web moved to the `firebase/auth` SDK. Closes the
+  token-refresh gap and the auth-flow audit. Sign in with Apple deferred until
+  iOS is actually on the table. Setup moved to [docs/SETUP.md](docs/SETUP.md);
+  rationale in [ADR 0001](docs/decisions/0001-auth-provider-and-native-clients.md).
+  Still blocked on `npx convex dev` first run.

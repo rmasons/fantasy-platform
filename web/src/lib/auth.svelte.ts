@@ -1,53 +1,78 @@
 import { browser } from "$app/environment";
+import { initializeApp, getApps, type FirebaseOptions } from "firebase/app";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+  GoogleAuthProvider,
+  type Auth,
+  type User,
+} from "firebase/auth";
 
-const TOKEN_KEY = "fantasy-platform:auth-token";
-const REFRESH_KEY = "fantasy-platform:auth-refresh";
-
+/**
+ * Auth store backed by Firebase Auth.
+ *
+ * Shape is dictated by `setupAuth()` in convex-svelte, which needs
+ * `{ isLoading, isAuthenticated, fetchAccessToken }`. Firebase's SDK owns
+ * session persistence and token refresh, so `fetchAccessToken` is a thin
+ * pass-through — `getIdToken(forceRefresh)` maps directly onto the
+ * `forceRefreshToken` flag Convex passes in.
+ *
+ * Convex validates these ID tokens as a plain OIDC provider (see
+ * convex/auth.config.ts). No session cookie, no firebase-admin, no server round
+ * trip — a simplification over fantasy-tds's cookie-based model.
+ *
+ * The same three-value contract is what ConvexMobile's `AuthProvider` protocol
+ * wants on iOS, over Firebase's native SDK. See
+ * docs/decisions/0001-auth-provider-and-native-clients.md.
+ */
 class AuthStore {
   isLoading = $state(true);
-  token = $state<string | null>(null);
+  isAuthenticated = $state(false);
+  /** `$state.raw` — a Firebase `User` is a class instance; don't deep-proxy it. */
+  user = $state.raw<User | null>(null);
 
-  get isAuthenticated() {
-    return this.token !== null;
-  }
+  #auth: Auth | null = null;
 
-  async fetchAccessToken({ forceRefreshToken }: { forceRefreshToken: boolean }) {
-    if (forceRefreshToken) {
-      // Token refresh via Convex Auth would go here once a refresh endpoint is wired.
-      // For now return the stored token as-is; Convex will reject expired tokens and
-      // the user will be prompted to sign in again.
-    }
-    return this.token;
-  }
-
-  init() {
+  init(config: FirebaseOptions) {
     if (!browser) {
       this.isLoading = false;
       return;
     }
-    this.token = localStorage.getItem(TOKEN_KEY);
-    this.isLoading = false;
-  }
-
-  setToken(token: string, refreshToken?: string) {
-    this.token = token;
-    if (browser) {
-      localStorage.setItem(TOKEN_KEY, token);
-      if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+    if (!config.apiKey || !config.projectId) {
+      console.warn("[auth] PUBLIC_FIREBASE_* env vars are unset — auth disabled.");
+      this.isLoading = false;
+      return;
     }
+
+    const app = getApps().length ? getApps()[0] : initializeApp(config);
+    this.#auth = getAuth(app);
+
+    // Fires once on load with the restored session (or null), then on every
+    // sign-in and sign-out. Resolving isLoading here avoids a flash of the
+    // signed-out UI for an already-authenticated user.
+    onAuthStateChanged(this.#auth, (user) => {
+      this.user = user;
+      this.isAuthenticated = user !== null;
+      this.isLoading = false;
+    });
   }
 
-  clearToken() {
-    this.token = null;
-    if (browser) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-    }
+  async fetchAccessToken({ forceRefreshToken }: { forceRefreshToken: boolean }) {
+    const user = this.#auth?.currentUser;
+    if (!user) return null;
+    return await user.getIdToken(forceRefreshToken);
   }
 
-  signInUrl(siteUrl: string, callbackOrigin: string) {
-    const redirectTo = encodeURIComponent(`${callbackOrigin}/auth/callback`);
-    return `${siteUrl}/api/auth/signin/google?redirectTo=${redirectTo}`;
+  async signIn() {
+    if (!this.#auth) return;
+    await signInWithPopup(this.#auth, new GoogleAuthProvider());
+  }
+
+  async signOut() {
+    if (!this.#auth) return;
+    await signOut(this.#auth);
   }
 }
 
