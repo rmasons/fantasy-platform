@@ -12,4 +12,10 @@ __pycache__/
 *.egg-info/
 .DS_Store
 node_modules/
-convex/_generated/
+
+# Framework build caches. Kept at root because the web client's own .gitignore
+# will not exist until build spec 07 recreates it — and its absence is exactly
+# how 63 .svelte-kit artifacts got committed in 07abaaf.
+.svelte-kit/
+.vercel/
+.output/
