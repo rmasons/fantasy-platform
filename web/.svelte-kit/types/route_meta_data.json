@@ -1,0 +1,6 @@
+{
+	"/": [],
+	"/standings": [
+		"src/routes/standings/+page.ts"
+	]
+}

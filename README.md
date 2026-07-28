@@ -31,15 +31,19 @@ Why Firebase Auth: **[ADR 0001](docs/decisions/0001-auth-provider-and-native-cli
   `core/` (config, Postgres pool, Sleeper client, Pydantic schemas),
   `ingestion/` (backfill + daily).
 - **`migrations/`** — plain SQL, applied in order.
-- **`web/`** — Svelte 5 + Vite SPA. A static client; it has no server and
-  therefore no data path except the API.
-- **`ios/`** — SwiftUI app *(not started)*.
+- **`web/`** — Svelte 5 + Vite SPA *(not started — build spec 07)*. A static
+  client: no server, therefore no data path except the API.
+- **`ios/`** — SwiftUI app *(not started — build spec 08)*.
+
+There is **no application code in this repo yet**, deliberately. It is
+specified in [`docs/build/`](docs/build/) and written by hand — see the
+"specs, not scaffolds" rule in [AGENTS.md](AGENTS.md).
 
 ## Prerequisites
 
 - **Python** 3.12+
-- **Node** 20+ (web client only)
 - **Docker** (local Postgres via `docker-compose.yml`)
+- **Node** 20+ — only once the web client exists (build spec 07)
 - A [Neon](https://neon.com) project, and the fantasy-tds Firebase project
 
 ## Local quickstart
@@ -52,23 +56,22 @@ Full ordered setup — including Neon, Firebase, and the deploy targets — is i
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-# 2. Local Postgres + schema
+# 2. Local Postgres
 docker compose up -d
-PYTHONPATH=src python -m core.db.migrate
+```
 
-# 3. API (http://localhost:8000, docs at /docs)
-PYTHONPATH=src uvicorn api.main:app --reload
+Then start at **[docs/build/](docs/build/)**. Once spec 01 is built:
 
-# 4. Web client (separate terminal)
-cd web && npm install && npm run dev
+```bash
+PYTHONPATH=src python -m core.db.migrate      # apply migrations
+PYTHONPATH=src uvicorn api.main:app --reload  # :8000, OpenAPI UI at /docs
 ```
 
 ## Tests
 
 ```bash
-pytest                      # API + ingestion + pure logic
-ruff check src tests        # lint
-cd web && npx vitest run    # web component tests
+pytest                  # pure logic, routes, ingestion
+ruff check src tests    # lint
 ```
 
 ## Configuration
@@ -80,7 +83,7 @@ Backend (`.env`, never committed — see [.env.example](.env.example)):
 | `DATABASE_URL` | Postgres connection string (local Docker or Neon) |
 | `FIREBASE_PROJECT_ID` | Validates Firebase ID tokens; same project as fantasy-tds |
 
-Web (`web/.env.local`):
+Web (`web/.env.local`), once the client exists:
 
 | Var | Purpose |
 |---|---|

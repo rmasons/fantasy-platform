@@ -47,8 +47,10 @@ Working model + TDD loop: [AGENTS.md](AGENTS.md). Architecture: [README.md](READ
   `CLAUDE_CODE_OAUTH_TOKEN` set. Validated end-to-end.
 - **Decisions recorded:** ADR 0001 (Firebase Auth), ADR 0002 (iOS-first,
   OpenAPI-contracted Python API).
-- **Salvage from the Convex detour:** `StandingsTable.svelte` + 9 passing tests,
-  and the standings fixture. The component is stack-agnostic and ports directly.
+- **Repo cleaned to only what is live** — the SvelteKit `web/` app, the
+  scaffold's `tests/`, the Railway `Procfile`, and `docs/slices/` are gone.
+  `StandingsTable.svelte` and its 9 tests are stack-agnostic and recoverable at
+  `8cd19f0~1` for build spec 07.
 
 ### ⚠️ Reverted
 
@@ -102,18 +104,20 @@ Ask for a coverage pass once a spec's acceptance criteria are green; per
   mirror fantasy-tds's `UserProfile` so the existing Firestore collection imports
   by UID with the twelve real Sleeper links intact. Not yet written as a
   migration. Do it with the Sleeper-linking slice.
-- **`verify.yml` still runs web vitest + svelte-check only** — needs pytest +
-  ruff, and the OpenAPI drift gate (regenerate clients, fail on diff). The two
-  Claude review workflows are stack-agnostic and unchanged.
-- **`Procfile` targets Railway**; Cloud Run is the current intent and needs a
-  `Dockerfile`. Railway remains a legitimate simpler fallback — decide when
-  there is something to deploy.
+- **`verify.yml` runs ruff + pytest** and no-ops loudly while there is nothing
+  to check. **The OpenAPI drift gate is still missing** — add it before the
+  first slice lands. The two Claude review workflows are unchanged.
+- **No deployment config.** Cloud Run needs a `Dockerfile`; Railway needs a
+  `Procfile` (the old one was removed as premature). Both paths are documented
+  in [SETUP.md](docs/SETUP.md) — write one when there is something to deploy.
 - **Neon is a public endpoint.** The scaffold's comments assume Railway's private
   Postgres ("no public exposure"). Accepted in ADR 0002, but revisit before the
   FAAB and dues ledgers land.
 - **Sleeper league ID** — the real one is still needed for any ingestion run.
-- **`docs/slices/standings.md`** is Convex-shaped and superseded by
-  [build spec 04](docs/build/04-standings-slice.md); delete it once 04 is built.
+- **No web or iOS client exists.** `web/` (SvelteKit) was removed in the
+  cleanup; `StandingsTable.svelte`, its 9 tests, and the standings fixture are
+  recoverable from git at `8cd19f0~1` and should be ported when build spec 07 is
+  written.
 
 ## Queued audits — good next-session tasks
 
@@ -175,3 +179,12 @@ response model → regenerate clients → web/iOS view.
   down, `/ping` vs `/health` as liveness vs readiness, the local-auth bypass and
   why it must fail loudly in prod — as *requirements* rather than as code.
   Recorded the rule in AGENTS.md so future sessions don't re-scaffold.
+- **2026-07-27 (cleanup)** — Pruned the repo to what is actually live. Removed
+  the SvelteKit `web/` app (superseded by build spec 07; `StandingsTable.svelte`
+  and its 9 tests recoverable at `8cd19f0~1`), `tests/test_health.py` (tested a
+  deleted route), the Railway `Procfile` (premature), and `docs/slices/`
+  (superseded by `docs/build/`). Rewrote `verify.yml` for ruff + pytest — it
+  previously ran web vitest and svelte-check, which deleting `web/` would have
+  broken; both steps now no-op with a visible `::notice::` so a green check
+  never quietly means "skipped". What remains is docs, specs, CI, dependency
+  manifests, `docker-compose.yml`, and `migrations/ROLES.sql`.

@@ -1,5 +1,13 @@
 name: verify
 
+# Mechanical checks on every PR. The two Claude workflows review judgment;
+# this one just runs the tools.
+#
+# Deliberately tolerant of an empty repo: there is no application code yet (it
+# is specified in docs/build/ and written by hand), so lint and tests pass
+# trivially today and become meaningful as each build spec lands. Both steps
+# announce when they no-op, so "green" never quietly means "skipped".
+
 on:
   pull_request:
     branches: [dev, test, main]
@@ -14,19 +22,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: "22"
+          python-version-file: .python-version
+          cache: pip
 
-      - name: Install web deps
-        working-directory: web
-        run: npm ci
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Web tests
-        working-directory: web
-        run: npx vitest run
+      - name: Lint
+        run: |
+          if [ -d src ]; then
+            ruff check src tests
+          else
+            echo "::notice::no src/ yet — see docs/build/01-foundation.md"
+          fi
 
-      - name: Type-check
-        working-directory: web
-        run: npx svelte-check --tsconfig ./tsconfig.json
+      - name: Tests
+        run: |
+          # pytest exits 5 when it collects nothing. That is the expected state
+          # until the first spec is built; any other non-zero is a real failure.
+          set +e
+          PYTHONPATH=src pytest -q
+          code=$?
+          set -e
+          if [ $code -eq 5 ]; then
+            echo "::notice::no tests collected yet — see docs/build/"
+            exit 0
+          fi
+          exit $code
+
+      # TODO (before the first slice lands, per HANDOFF): the OpenAPI drift
+      # gate. Regenerate the TypeScript and Swift clients from the live spec
+      # and fail on any diff, so a contract change can never merge without its
+      # clients. Retrofitting this after endpoints exist is much harder.

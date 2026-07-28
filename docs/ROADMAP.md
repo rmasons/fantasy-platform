@@ -8,8 +8,8 @@ API intact** ([ADR 0002](decisions/0002-ios-first-openapi-python-api.md)).
 
 Per-slice pattern: **migration → pure logic (`src/core/`) → ingestion → route +
 Pydantic response model → regenerate clients → web/iOS view**, TDD per
-[AGENTS.md](../AGENTS.md). Each slice gets a `docs/slices/*.md` contract when it
-starts — and because the response model *is* the contract, that doc now defines
+[AGENTS.md](../AGENTS.md). Each slice gets a [`docs/build/`](build/) spec when it
+starts — and because the response model *is* the contract, that spec defines
 Pydantic shapes rather than prose.
 
 **iOS is the primary client.** Each slice is done when its endpoint is in the
@@ -96,10 +96,11 @@ Since the backend is the learning focus, design runs as a side track against
 fixtures — and since the OpenAPI spec fixes the data shapes, designs can be
 produced for any slice before its endpoint exists:
 
-1. **Extract before designing.** The existing `web/` standings page already sets
-   the visual language (navy/amber, `font-sport`, desktop table + mobile cards).
-   First step is extracting a design system (`system.md`) from that code so every
-   later page stays consistent instead of inventing its own look.
+1. **Extract before designing.** The retired SvelteKit standings page set the
+   visual language (navy/amber, `font-sport`, desktop table + mobile cards) —
+   recoverable from git history at `8cd19f0~1` under `web/src/lib/components/`.
+   First step is extracting a design system (`system.md`) from it so every later
+   page stays consistent instead of inventing its own look.
 2. **Design only the novel surfaces.** Data-table pages (standings, matchups,
    rosters, transactions) are covered by the fixture-first TDD flow — mockups add
    little. Design-first pays off on pages with no fantasy-tds precedent: the
@@ -111,10 +112,10 @@ produced for any slice before its endpoint exists:
 
 ## Platform / infra follow-ups
 
-- **CI for the Python API** — `verify.yml` still runs web vitest + svelte-check
-  only; it needs pytest + ruff, plus the **OpenAPI drift gate** (regenerate both
-  clients, fail on any diff). Add the gate before the first slice lands so it is
-  never retrofitted (known gap in [HANDOFF.md](../HANDOFF.md)).
+- **OpenAPI drift gate** — `verify.yml` runs ruff + pytest and no-ops loudly
+  until there is code. The missing piece is the gate: regenerate both clients
+  and fail on any diff. Add it before the first slice lands so it is never
+  retrofitted (known gap in [HANDOFF.md](../HANDOFF.md)).
 - **Ingestion isolation** — `daily` should process leagues independently so one
   league's failure doesn't abort the rest, and log per-league outcomes.
 - **Schedule cadence** — daily 05:00 UTC is fine off-season; in-season add a

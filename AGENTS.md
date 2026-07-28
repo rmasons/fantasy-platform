@@ -64,15 +64,15 @@ clients are regenerated and committed**.
 - **Ingestion:** `PYTHONPATH=src python -m ingestion backfill --league-id <id>` / `... daily`
 - **Tests:** `pytest`
 - **Lint:** `ruff check src tests`
-- **Web tests:** `cd web && npx vitest run`
+- **Web tests:** once the web client exists (build spec 07)
 
-CI runs pytest + ruff + web vitest.
+CI runs ruff + pytest, and no-ops loudly while there is nothing to check.
 
 ## Conventions
 
 - **Build specs live in [docs/build/](docs/build/)** — one per buildable unit,
-  written just ahead of the work, never months ahead. `docs/slices/*.md` remains
-  the place for per-feature data contracts once a slice is in flight.
+  written just ahead of the work, never months ahead. That is the only place
+  contracts live; there is no separate slices directory.
 - **The OpenAPI spec is the coordination point.** Pydantic models define it;
   both clients are generated from it. Change the model first, regenerate second,
   update consumers third. Never hand-write a client type.

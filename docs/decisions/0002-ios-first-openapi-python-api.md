@@ -150,8 +150,8 @@ The scaffold uses `psycopg-pool`, which needs a **long-lived process**. That
 rules out serverless functions, where every invocation cold-starts and pooling
 cannot work — the classic serverless-plus-Postgres footgun. Cloud Run scales to
 zero, sits in the same Google project as Firebase, and Docker is transferable.
-Railway (already targeted by the existing `Procfile`) remains the simpler
-fallback if deployment friction outweighs the learning.
+Railway remains the simpler fallback if deployment friction outweighs the
+learning.
 
 ### Why a Svelte SPA instead of SvelteKit
 
@@ -229,9 +229,10 @@ keeping Svelte 5, which is already familiar.
       `StandingsTable.svelte` and its tests.
 - [ ] Add the OpenAPI drift gate to CI: regenerate clients, fail if the
       committed spec or generated types are stale.
-- [ ] Rewrite `docs/slices/standings.md` — the contract is sound, the Convex
-      mechanics are not. Do it when the slice restarts.
-- [ ] Update `Procfile` / add a `Dockerfile` once the hosting target is final.
+- [x] ~~Rewrite `docs/slices/standings.md`~~ — superseded by
+      [build spec 04](../build/04-standings-slice.md); the directory is gone.
+- [ ] Add a `Dockerfile` (Cloud Run) or `Procfile` (Railway) once the hosting
+      target is final. Both were removed as premature.
 - [ ] Revisit ADR 0001's ConvexMobile follow-ups — now moot.
 
 ## References

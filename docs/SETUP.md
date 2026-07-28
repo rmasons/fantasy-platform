@@ -140,9 +140,10 @@ Scales to zero, so idle cost is nothing — and combined with Neon's suspend, th
 first request after a quiet period pays both cold starts (~1–2s + a few hundred
 ms). Fine for twelve users.
 
-**Simpler alternative:** Railway. The existing `Procfile` already targets it, and
-ingestion is already modelled as a separate cron service there. If deployment
-friction is costing more than it's teaching, take Railway.
+**Simpler alternative:** Railway, which needs a `Procfile` instead of a
+`Dockerfile` — one line for the web process, plus a separate cron service for
+ingestion. If deployment friction is costing more than it's teaching, take
+Railway.
 
 > More: [Cloud Run](https://cloud.google.com/run/docs/deploying-source-code) ·
 > [Railway](https://docs.railway.app/)
@@ -167,6 +168,7 @@ run once matchups settle Monday night.
 | Architecture and key patterns | [README.md](../README.md) |
 | Working model, TDD rules, commands | [AGENTS.md](../AGENTS.md) |
 | Current state, next steps, known gaps | [HANDOFF.md](../HANDOFF.md) |
+| What to build, in order | [build/](build/) |
 | Slice sequence to parity and beyond | [ROADMAP.md](ROADMAP.md) |
 | Why this stack | [ADR 0002](decisions/0002-ios-first-openapi-python-api.md) |
 | Why Firebase Auth | [ADR 0001](decisions/0001-auth-provider-and-native-clients.md) |

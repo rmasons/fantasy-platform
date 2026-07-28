@@ -5,8 +5,8 @@ OpenAPI spec. Everything after this is the same shape with different data.
 
 **Depends on:** [01](01-foundation.md), [02](02-schema-and-migrations.md), [03](03-sleeper-client.md).
 
-This supersedes `docs/slices/standings.md`, which is Convex-shaped and marked
-stale. Its ranking rules and edge cases were correct and are carried below.
+This supersedes the retired `docs/slices/standings.md` (Convex-shaped). Its
+ranking rules and edge cases were correct and are carried below.
 
 ---
 
