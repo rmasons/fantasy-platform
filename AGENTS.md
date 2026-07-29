@@ -97,12 +97,25 @@ CI runs ruff + pytest, and no-ops loudly while there is nothing to check.
   **Sonnet** = implementation (default — escalate to Opus for subtle/hard tasks);
   **Haiku** = mechanical VCS chores (commits, pushes, PRs, branch ops). The
   tiering is a default, not a rule.
-- **Specs, not scaffolds.** This project is Mason's vehicle for learning API
-  development in Python, so **do not hand him working implementation code**.
-  Produce a build spec in `docs/build/`: goal, design decisions *and their
-  reasoning*, the contract (field tables, response shapes, signatures),
-  acceptance criteria, and edge cases — then let him write it. Specify shapes,
-  not bodies. Tests are the carve-out above: he implements, a session covers.
+- **Specs, then stub scaffolds — never working logic.** This project is Mason's
+  vehicle for learning API development in Python, so **do not hand him working
+  implementation code**. Deliver two things, in order. **(1)** A build spec in
+  `docs/build/`: goal, design decisions *and their reasoning*, the contract
+  (field tables, response shapes, signatures), acceptance criteria, edge cases.
+  **(2)** The stub files themselves — imports, signatures, decorators, type
+  annotations, and structural wiring (router registration, `__main__` guards,
+  config constants) in place, with **every body `raise NotImplementedError`**
+  under a `TODO(spec NN section M)` saying what goes there and why. He writes
+  the bodies.
+  - **The line is setup vs. logic.** Scaffoldable: layout, imports, signatures,
+    response-model annotations, decorators, registration, constants. Not
+    scaffoldable: route bodies, SQL, parsing, computation, error handling.
+  - **Reasoning goes in the docstring**, not only the spec, so it is legible
+    where the code gets written.
+  - **Leave it non-runnable** — never half-implement to make it start. Verify
+    the stubs import cleanly and `ruff check src` is clean; say so, and say
+    plainly that no acceptance criteria are green yet.
+  - Tests are the carve-out above: he implements, a session covers.
 - **Spec quality gates output** — the orchestrator's main job is crisp, testable
   contracts. Vague spec → bad code.
 - **Delegate sizable, well-bounded tasks**; do trivial edits inline (spawning has
