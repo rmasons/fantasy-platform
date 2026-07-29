@@ -52,6 +52,15 @@ Working model + TDD loop: [AGENTS.md](AGENTS.md). Architecture: [README.md](READ
   `StandingsTable.svelte` and its 9 tests are stack-agnostic and recoverable at
   `8cd19f0~1` for build spec 07.
 
+### 🚧 In progress
+
+- **Build spec 01 — Foundation.** Files 1–4 of seven are written:
+  `src/core/config.py`, `src/core/schemas.py`, `src/core/db/pool.py`,
+  `src/api/deps.py`. Remaining: `routes/health.py`, `api/main.py`,
+  `core/db/migrate.py`. No acceptance criteria are formally green yet — the app
+  is not runnable until file 6 — but the pieces built so far are verified
+  against a live local Postgres.
+
 ### ⚠️ Reverted
 
 The **Convex backend** (2026-07-06 → 2026-07-27) is removed — see ADR 0002. It
@@ -65,9 +74,11 @@ spec.
 
 ## Phase 1 — Stand it up (one-time, Mason does this)
 
-**Nothing here has ever been run.** Ordered guide: **[docs/SETUP.md](docs/SETUP.md)**.
-Short version: Python env → local Postgres via Docker → migrate → run the API →
-create a Neon project → point the API at Firebase for token verification.
+**Steps 1–2 are done.** `.venv` exists, local Postgres is running in Docker, and
+`.env` has been copied from `.env.example`. Everything past that is untouched.
+Ordered guide: **[docs/SETUP.md](docs/SETUP.md)**. Short version: Python env →
+local Postgres via Docker → migrate → run the API → create a Neon project →
+point the API at Firebase for token verification.
 
 Local-only is enough to start; Neon and Cloud Run are not needed until there is
 something worth deploying.
@@ -114,6 +125,16 @@ Ask for a coverage pass once a spec's acceptance criteria are green; per
   Postgres ("no public exposure"). Accepted in ADR 0002, but revisit before the
   FAAB and dues ledgers land.
 - **Sleeper league ID** — the real one is still needed for any ingestion run.
+- **`.env` holds the `your-firebase-project-id` placeholder.** Spec 05's
+  criterion 8 branches on `firebase_project_id` being *unset*; a placeholder
+  string reads as set, so the local bypass will not engage and `firebase-admin`
+  will initialise against a project that does not exist. Comment the line out
+  until the real ID is in hand.
+- **`.venv` console scripts have stale shebangs.** `pip`, `pytest`, and `dotenv`
+  point at the retired `~/Desktop/development` path and will not execute;
+  `uvicorn` was reinstalled after the move and is fine. Use
+  `.venv/bin/python -m <tool>`, or recreate the venv. `ruff` is not installed at
+  all — only `pytest` made it in from the dev extras.
 - **No web or iOS client exists.** `web/` (SvelteKit) was removed in the
   cleanup; `StandingsTable.svelte`, its 9 tests, and the standings fixture are
   recoverable from git at `8cd19f0~1` and should be ported when build spec 07 is
@@ -188,3 +209,51 @@ response model → regenerate clients → web/iOS view.
   broken; both steps now no-op with a visible `::notice::` so a green check
   never quietly means "skipped". What remains is docs, specs, CI, dependency
   manifests, `docker-compose.yml`, and `migrations/ROLES.sql`.
+- **2026-07-27 (spec usability)** — The specs said what had to be true but never
+  what to do first, and the contract, the reasoning, and the traps for any one
+  file were scattered across four sections. **Restructured all five around
+  files.** Each now opens with a summary table (what's new, size, how you know it
+  works), then a manifest in dependency order, then **one self-contained section
+  per file**: what it does → contract → decisions left open → traps → a terminal
+  **Check** → which criteria it closes → docs links. Acceptance criteria remain
+  as a scorecard; the standalone "Edge cases" sections were distributed into the
+  files they belong to. Ordering that isn't obvious is stated with its reason —
+  04 starts with the pure function, 05 with the migration and the config guard.
+  Where a file is built in passes (03's client, 05's `deps.py`) that stays inside
+  its own section. Spec 01 also gained a **Learning references** section, since
+  it introduces every library at once. Spec 02 is organised per *table*, being
+  one SQL file. `docs/build/README.md` rewritten to match. Two substantive
+  additions rather than restatements: **spec 01 now specifies sync `def`
+  handlers** — the sync `psycopg_pool` would block the event loop under
+  `async def`, and the spec was silent on it — and **spec 03 flags that
+  `pytest-httpserver` is not in `requirements-dev.txt`** and that
+  `@pytest.mark.live` needs registering in `pyproject.toml`. Fixed a stale
+  pointer in spec 02 to `migrations/0001_init.sql`, deleted in `8cd19f0` and now
+  cited by git path. All links, anchors, and relative paths verified.
+- **2026-07-27 (spec 01, files 1–4)** — First implementation code in the repo.
+  `core/config.py` (settings + `@lru_cache`d `get_settings()`),
+  `core/schemas.py` (`Health`), `core/db/pool.py`, `api/deps.py` (`get_db`
+  yielding a pooled connection, plus a `DbConn` annotated alias). Verified
+  against live local Postgres: settings resolve from `.env`, `dict_row` returns
+  dicts, a borrow against an unreachable database fails in **5.00s** rather than
+  the 30s default, and the dependency returns its connection to the pool.
+  Version-specific findings worth not rediscovering, all confirmed against the
+  installed versions rather than assumed:
+  **(1)** `psycopg_pool` 3.3.1 emits a `DeprecationWarning` unless `open=` is
+  passed explicitly — the default flips to `False` in a future release. The pool
+  is constructed `open=False` and started by `open_pool()` from the lifespan
+  hook, which is also what keeps importing the module from connecting to
+  anything. Borrowing before that raises `PoolClosed`, not `PoolTimeout` — the
+  migration runner (file 7) has no lifespan and must open the pool itself.
+  **(2)** `row_factory` is a *connection* argument, so it rides in
+  `ConnectionPool(kwargs={...})`; there is no `cursor_factory` and no
+  `RealDictCursor` — psycopg2 answers actively mislead here.
+  **(3)** Pydantic v2 does **not** infer a default from `str | None` the way v1
+  did, so `firebase_project_id` needed an explicit `= None`. Same distinction
+  resurfaces as spec 04's criterion 14, where nullable-vs-optional changes the
+  OpenAPI `required` array and therefore the generated Swift.
+  **(4)** `pydantic-settings` ignores `.env` entirely unless `model_config` sets
+  `env_file`, and its `extra` defaults to `forbid` — which only governs keys in
+  the dotenv file, not unmatched environment variables.
+  Remaining in spec 01: `routes/health.py`, `api/main.py`, `core/db/migrate.py`,
+  and the parsed-origins accessor on `Settings` that CORS needs.
