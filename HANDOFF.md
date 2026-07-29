@@ -54,12 +54,20 @@ Working model + TDD loop: [AGENTS.md](AGENTS.md). Architecture: [README.md](READ
 
 ### 🚧 In progress
 
-- **Build spec 01 — Foundation.** Files 1–4 of seven are written:
-  `src/core/config.py`, `src/core/schemas.py`, `src/core/db/pool.py`,
-  `src/api/deps.py`. Remaining: `routes/health.py`, `api/main.py`,
-  `core/db/migrate.py`. No acceptance criteria are formally green yet — the app
-  is not runnable until file 6 — but the pieces built so far are verified
-  against a live local Postgres.
+- **Build spec 01 — Foundation.** Files 1–4 of seven are written and verified
+  against a live local Postgres: `src/core/config.py`, `src/core/schemas.py`,
+  `src/core/db/pool.py`, `src/api/deps.py`.
+- **Files 5–7 exist as stubs, not implementations** (2026-07-29, at Mason's
+  request). `api/routes/health.py`, `api/main.py` and `core/db/migrate.py` have
+  their imports, signatures, decorators and router/registration structure in
+  place; every body is `raise NotImplementedError` with a `TODO(spec 01
+  section N)` naming what goes there. Same for the `Settings.origins` accessor
+  CORS needs. **Mason writes the bodies.** This is now the **standing working
+  mode** for the repo, not a one-off: spec first, then stubs, logic left to him
+  — see the rule in [AGENTS.md](AGENTS.md#agentic-rules), amended 2026-07-29
+  after this pass. No acceptance criteria are green: the app is still not
+  runnable, and `api.main.app` is deliberately commented out until
+  `create_app()` works.
 
 ### ⚠️ Reverted
 
@@ -164,6 +172,21 @@ the new features. Per-slice pattern: migration → pure logic → ingestion → 
 response model → regenerate clients → web/iOS view.
 
 ## Session log
+
+- **2026-07-29** — Stubbed spec 01's remaining files rather than implementing
+  them: `api/routes/health.py` (`/ping`, `/health`, `-> Health` annotation as
+  the contract), `api/main.py` (`lifespan`, `create_app()`, the commented-out
+  `app = create_app()` uvicorn imports), `core/db/migrate.py`
+  (`ensure_tracking_table` / `applied_versions` / `discover_migrations` /
+  `apply_migration` / `main`, plus `MIGRATIONS_DIR` and the `__main__` guard),
+  and a `Settings.origins` property. Bodies raise `NotImplementedError`; the
+  reasoning that belongs at each one — 200-not-500 on a degraded database, the
+  single-transaction migrate+record, skipping non-digit stems for `ROLES.sql`,
+  why `allowed_origins` stays a `str` — rides in the docstrings so it is
+  legible at the point of writing rather than only in the spec. All three
+  modules import cleanly and the router registers both paths. `uvx ruff check
+  src` reports three `I001` import-sort findings, all pre-existing in
+  `config.py`, `pool.py` and `schemas.py`; the new files are clean.
 
 - **2026-06-27** — Scaffolded Python/FastAPI backend + `web/` frontend; built the
   standings frontend test-first; stood up `dev → test → main`; gate validated.

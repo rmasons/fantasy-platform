@@ -13,6 +13,21 @@ class Settings(BaseSettings):
     allowed_origins: str = 'http://localhost:5173'
     firebase_project_id: str | None = None
 
+    @property
+    def origins(self) -> list[str]:
+        """`allowed_origins` parsed into the list CORS middleware wants.
+
+        TODO(spec 01 section 1): split on commas, strip whitespace, and drop
+        blanks — `"http://a, http://b,"` must yield two origins, not three with
+        one empty.
+
+        The field itself stays a plain `str` on purpose: for any complex field
+        type, pydantic-settings JSON-parses the environment value first, so
+        `ALLOWED_ORIGINS=http://a,http://b` against a `list[str]` field raises a
+        JSON decode error rather than a useful one.
+        """
+        raise NotImplementedError
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
